@@ -1,0 +1,57 @@
+[project]
+name = "ia-visao-web"
+version = "0.1.0"
+description = "Detector visual multi-task de componentes web com dataset sintético Bootstrap."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "faker>=40.0",
+    "jinja2>=3.1",
+    "pillow>=12.0",
+    "pyyaml>=6.0",
+    "typer>=0.25",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=2.0",
+    "pytest>=9.0",
+    "ruff>=0.15",
+]
+render = [
+    "playwright>=1.56",
+]
+model = [
+    "torch>=2.0",
+    "ultralytics>=8.0",
+    "pycocotools>=2.0",
+]
+
+[project.scripts]
+ia-visao-web = "ia_visao_web.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+packages = ["ia_visao_web"]
+
+[[tool.mypy.overrides]]
+module = ["playwright.*", "torch", "yaml"]
+ignore_missing_imports = true
