@@ -1,3 +1,5 @@
+import json
+
 from typer.testing import CliRunner
 
 from ia_visao_web.cli import app
@@ -22,3 +24,62 @@ def test_predict_without_model_returns_valid_empty_payload(tmp_path):
     assert result.exit_code == 0
     assert '"image"' in result.stdout
     assert '"detections": []' in result.stdout
+
+
+def test_dataset_build_real_reports_missing_playwright(monkeypatch, tmp_path):
+    monkeypatch.setattr("ia_visao_web.renderer.playwright_renderer.sync_playwright", None)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "dataset",
+            "build",
+            "--output",
+            str(tmp_path),
+            "--count",
+            "1",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "playwright" in result.output
+
+
+def test_train_dry_run_writes_evaluation_plan(tmp_path):
+    plan_path = tmp_path / "plan.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "train",
+            "--dataset",
+            str(tmp_path / "dataset"),
+            "--output",
+            str(tmp_path / "runs"),
+            "--epochs",
+            "5",
+            "--eval-split",
+            "test",
+            "--eval-every",
+            "2",
+            "--conf-threshold",
+            "0.35",
+            "--iou-threshold",
+            "0.6",
+            "--lambda-tag",
+            "0.4",
+            "--plan-output",
+            str(plan_path),
+            "--dry-run",
+        ],
+    )
+
+    payload = json.loads(plan_path.read_text())
+
+    assert result.exit_code == 0, result.output
+    assert payload["epochs"] == 5
+    assert payload["evaluation"]["split"] == "test"
+    assert payload["evaluation"]["eval_every"] == 2
+    assert payload["evaluation"]["conf_threshold"] == 0.35
+    assert payload["evaluation"]["iou_threshold"] == 0.6
+    assert payload["loss_weights"]["tag"] == 0.4

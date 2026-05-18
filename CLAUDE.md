@@ -55,6 +55,47 @@ PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict /tmp/ia-visao-web-dat
 - `predict` retorna JSON válido com `detections: []` enquanto não houver pesos/model loader implementado.
 - O fluxo desta execução não usa commits nem inicializa git, por pedido explícito do usuário.
 
+## Possíveis Usos da IA
+
+Quando o treinamento real estiver implementado, a IA pode ser usada para entender
+interfaces web a partir de screenshots, detectando componentes visuais e
+associando atributos HTML prováveis a cada detecção.
+
+- Automação visual de testes: verificar se botões, inputs, cards, modais,
+  alertas e outros componentes aparecem onde deveriam sem depender só do DOM.
+- QA de interfaces: comparar screenshots entre versões e identificar mudanças
+  visuais em componentes.
+- Auditoria de UI: mapear automaticamente quais componentes existem em uma
+  página ou aplicação.
+- Agentes que usam sites: ajudar agentes de IA a localizar onde clicar,
+  preencher campos ou navegar em uma tela.
+- Extração de estrutura a partir de imagem: transformar screenshots em uma
+  representação estruturada com classe, bbox, score e atributos HTML.
+- Assistência para image-to-code: servir como etapa intermediária para
+  reconstruir HTML/CSS a partir de uma imagem.
+- Acessibilidade: detectar elementos que parecem botões, links ou inputs e
+  comparar com tags, roles e estrutura HTML esperadas.
+- Monitoramento visual de aplicações: checar em produção se telas essenciais
+  renderizaram componentes críticos como login, navbar, formulário ou alerta.
+- Análise de design systems: medir uso e distribuição de componentes Bootstrap
+  e, futuramente, de outros frameworks.
+
+## Ideia de Publicação Open Source
+
+- Publicar o projeto como open source quando o pipeline estiver mais completo,
+  com documentação clara de instalação, geração de dataset, treino, avaliação e
+  inferência.
+- Incluir exemplos pequenos e reproduzíveis para permitir que outras pessoas
+  validem o funcionamento sem precisar de GPU ou dataset grande.
+- Distribuir uma versão da IA já treinada, com pesos versionados, para que a
+  comunidade possa testar `predict` diretamente em screenshots sem treinar do
+  zero.
+- Separar claramente o que é dataset sintético, modelo treinado, limitações
+  conhecidas e próximos passos para evitar expectativas erradas sobre uso em
+  sites reais arbitrários.
+- Considerar publicar também cards de modelo/dataset com métricas, licença,
+  escopo de uso, limitações e instruções para fine-tuning.
+
 ## Gotchas
 
 - `uv` não está instalado neste ambiente (`uv --version` falhou).
