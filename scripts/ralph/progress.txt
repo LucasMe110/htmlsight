@@ -14,5 +14,20 @@ Started: 2026-05-23
 - `venv/bin/python -m mypy src` para typecheck
 - O `split_for_id` usa SHA1 do nome do arquivo módulo 10 para split determinístico
 - `DatasetWriter` cria estrutura images/labels/attrs/{train,val,test}/
+- Para mockar módulos opcionais em tests: use `monkeypatch.setitem(sys.modules, "modulo", mock)` — mais robusto que setattr pois intercepta o `sys.modules.get()` usado em `_load_ultralytics()`
+- Sentinel pattern para detectar módulo ausente: `sentinel = object(); mod = sys.modules.get("mod", sentinel); if mod is sentinel: importlib.import_module(...)`; nunca usar `...` (Ellipsis) como sentinel com mypy pois causa conflito de tipos
 
+---
+
+## 2026-05-23 - US-001
+- Implementado backend real de treinamento Ultralytics em `src/ia_visao_web/model/train.py`
+- Adicionado `UltralyticsUnavailableError` com mensagem de install acionável
+- `train_model()` chama `ultralytics.YOLO(model_size.pt).train(...)` com todos os campos de `TrainingConfig`
+- `_load_ultralytics()` usa `sys.modules` sentinel para suportar monkeypatching nos testes
+- **Files changed:** `src/ia_visao_web/model/train.py`, `tests/unit/model/test_train.py`
+- **Learnings:**
+  - `monkeypatch.setitem(sys.modules, "ultralytics", None)` simula módulo ausente de forma confiável
+  - Usar `Any` como return type de `_load_ultralytics()` evita erros de `attr-defined` no mypy
+  - O erro mypy em `playwright_renderer.py` (no-redef) é pré-existente e não relacionado
+  - `monkeypatch.setitem(sys.modules, "ultralytics", mock)` é preferível a `setattr(sys, 'modules', ...)` pois não substitui todo o dicionário
 ---

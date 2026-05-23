@@ -15,8 +15,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented _load_ultralytics() using sys.modules sentinel pattern to support monkeypatching in tests. Maps TrainingConfig fields to ultralytics train() kwargs."
     },
     {
       "id": "US-002",
