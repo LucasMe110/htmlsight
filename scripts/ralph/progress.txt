@@ -1,0 +1,18 @@
+# Ralph Progress Log — htmlsight
+Started: 2026-05-23
+---
+
+## Codebase Patterns
+- Layout `src/` com `PYTHONPATH=src` para executar sem instalar o pacote
+- Dependências pesadas (torch, ultralytics, playwright) DEVEM falhar com erros acionáveis quando ausentes — use `try/except ImportError` e levante erro customizado com mensagem de install
+- Tests que precisam de torch/ultralytics usam `monkeypatch.setattr` para evitar dependência real
+- Formato YOLO: "class_id cx cy w h" normalizado 0-1, seis casas decimais
+- Sidecar JSON alinhado linha-a-linha com o .txt YOLO (índice i do JSON = bbox i do .txt)
+- TDD: sempre escreva o teste que falha ANTES de escrever a implementação
+- `venv/bin/python -m pytest -v` para rodar testes
+- `venv/bin/python -m ruff check .` para lint
+- `venv/bin/python -m mypy src` para typecheck
+- O `split_for_id` usa SHA1 do nome do arquivo módulo 10 para split determinístico
+- `DatasetWriter` cria estrutura images/labels/attrs/{train,val,test}/
+
+---
