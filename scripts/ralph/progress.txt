@@ -16,6 +16,9 @@ Started: 2026-05-23
 - `DatasetWriter` cria estrutura images/labels/attrs/{train,val,test}/
 - Para mockar módulos opcionais em tests: use `monkeypatch.setitem(sys.modules, "modulo", mock)` — mais robusto que setattr pois intercepta o `sys.modules.get()` usado em `_load_ultralytics()`
 - Sentinel pattern para detectar módulo ausente: `sentinel = object(); mod = sys.modules.get("mod", sentinel); if mod is sentinel: importlib.import_module(...)`; nunca usar `...` (Ellipsis) como sentinel com mypy pois causa conflito de tipos
+- Isolamento de módulo em tests: quando um test injeta torch/ultralytics mock ANTES de importar o módulo, use `monkeypatch.delitem(sys.modules, "ia_visao_web.model.XXX", raising=False)` no helper para garantir que o módulo seja reimportado com o mock — sem isso o módulo cacheado do test anterior pode ser reutilizado
+- Mypy `ignore_missing_imports = true` para torch: o `# type: ignore[assignment]` em `_mod = None` é desnecessário (a anotação seria `unused-ignore`)
+- Mypy `no-redef` em try/except: se declarar `var: Any` antes do try e depois `from pkg import var`, adicionar `# type: ignore[no-redef]` na linha do import
 
 ---
 
@@ -30,4 +33,18 @@ Started: 2026-05-23
   - Usar `Any` como return type de `_load_ultralytics()` evita erros de `attr-defined` no mypy
   - O erro mypy em `playwright_renderer.py` (no-redef) é pré-existente e não relacionado
   - `monkeypatch.setitem(sys.modules, "ultralytics", mock)` é preferível a `setattr(sys, 'modules', ...)` pois não substitui todo o dicionário
+---
+
+## 2026-05-23 - US-002
+- Implementado `WebComponentDataset` em `src/ia_visao_web/model/dataset_loader.py`
+- Carrega imagens PNG, labels YOLO (.txt) e sidecar JSON (.json) de attrs por amostra
+- `__len__` retorna número de imagens no split; `__getitem__` retorna dict com `image`, `boxes`, `attrs`, `image_id`
+- Levanta `FileNotFoundError` com nome do arquivo se sidecar JSON estiver ausente
+- Levanta `TorchUnavailableError` se torch não estiver instalado (verificado em `__init__`)
+- Corrigido erro pré-existente de mypy em `playwright_renderer.py` (no-redef) com `# type: ignore[no-redef]`
+- **Files changed:** `src/ia_visao_web/model/dataset_loader.py` (novo), `tests/unit/model/test_dataset_loader.py` (novo), `src/ia_visao_web/renderer/playwright_renderer.py` (fix mypy)
+- **Learnings:**
+  - `monkeypatch.delitem(sys.modules, "module", raising=False)` no helper de injeção do mock garante isolamento — sem isso o módulo cacheado do test anterior é reutilizado e o mock não tem efeito
+  - `try: import torch as _torch; except ImportError: _torch = None` sem `# type: ignore[assignment]` — mypy aceita pois `ignore_missing_imports = true` para torch no pyproject.toml
+  - Não é necessário herdar de `torch.utils.data.Dataset`; duck typing com `__len__` e `__getitem__` é suficiente e evita complexidade de herança condicional
 ---

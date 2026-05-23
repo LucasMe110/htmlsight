@@ -32,8 +32,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "WebComponentDataset checks torch at instantiation (sentinel pattern from train.py). No class inheritance from torch.Dataset needed — duck-typing sufficient for DataLoader. Module eviction (monkeypatch.delitem) required in test helper for isolation."
     },
     {
       "id": "US-003",
