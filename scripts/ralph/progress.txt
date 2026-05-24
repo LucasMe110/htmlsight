@@ -21,6 +21,10 @@ Started: 2026-05-23
 - Mypy `no-redef` em try/except: se declarar `var: Any` antes do try e depois `from pkg import var`, adicionar `# type: ignore[no-redef]` na linha do import
 - Torch `ignore_missing_imports = true`: mypy trata `torch` como `Any`, então `# type: ignore[union-attr]` em `torch.tensor(0.0)` é desnecessário (vira `unused-ignore`)
 - Para testes que exigem torch real (gradient, loss value): usar `pytest.importorskip("torch")` dentro do corpo do teste — são skipped quando torch não está instalado mas passam quando está
+- `zip(..., strict=False)` obrigatório pelo ruff B905 quando os iteráveis têm o mesmo tamanho garantido por design (não use zip() simples)
+- Ruff I001: importações de `ia_visao_web` devem estar em ordem alfabética pelo subpacote (`dataset` < `eval` < `labeler` < `model` < `renderer` < `sources`)
+- Para CLI tests com monkeypatch de funções: usar `monkeypatch.setattr("ia_visao_web.cli.predict_image", ...)` (nome no módulo importador, não no módulo de origem)
+- Ultralytics Results: `boxes.xyxy.tolist()` / `boxes.conf.tolist()` / `boxes.cls.tolist()` é a interface mais simples para iterar detecções e mockar sem torch real
 
 ---
 
@@ -49,6 +53,20 @@ Started: 2026-05-23
   - `monkeypatch.delitem(sys.modules, "module", raising=False)` no helper de injeção do mock garante isolamento — sem isso o módulo cacheado do test anterior é reutilizado e o mock não tem efeito
   - `try: import torch as _torch; except ImportError: _torch = None` sem `# type: ignore[assignment]` — mypy aceita pois `ignore_missing_imports = true` para torch no pyproject.toml
   - Não é necessário herdar de `torch.utils.data.Dataset`; duck typing com `__len__` e `__getitem__` é suficiente e evita complexidade de herança condicional
+---
+
+## 2026-05-24 - US-004
+- Implementado `predict_image(image_path, weights_path)` em `src/ia_visao_web/eval/predict.py`
+- Adicionado `UltralyticsUnavailableError` e `_load_ultralytics()` usando o mesmo padrão sentinel de train.py
+- CLI `predict` aceita `--weights` opcional: sem pesos retorna `detections: []` com aviso; UltralyticsUnavailableError também capturado graciosamente
+- Boxes parseados via `boxes.xyxy/conf/cls.tolist()` — facilita mock nos testes sem precisar de torch real
+- Atributos stub: `tag`, `display`, `role`, `has_children` = None até modelo multi-task treinado
+- **Files changed:** `src/ia_visao_web/eval/predict.py`, `src/ia_visao_web/cli.py`, `tests/unit/eval/test_predict.py`, `tests/unit/test_cli.py`
+- **Learnings:**
+  - `boxes.xyxy.tolist()` / `boxes.conf.tolist()` / `boxes.cls.tolist()` é a interface mais simples de ultralytics para iterar detecções e mockar sem torch
+  - Para CLI tests com monkeypatch de funções importadas: usar `monkeypatch.setattr("ia_visao_web.cli.predict_image", ...)` (nome no módulo que importa, não no módulo de origem)
+  - `zip(..., strict=False)` obrigatório pelo ruff B905 quando os iteráveis têm o mesmo tamanho garantido por design
+  - Ruff I001: importações de `ia_visao_web` devem estar em ordem alfabética pelo subpacote (`dataset` < `eval` < `labeler` < `model` < `renderer` < `sources`)
 ---
 
 ## 2026-05-24 - US-003

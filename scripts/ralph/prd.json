@@ -64,8 +64,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "predict_image(image_path, weights_path) added to eval/predict.py using the same _load_ultralytics() sentinel pattern. CLI predict command accepts optional --weights; when missing returns detections:[] with warning; UltralyticsUnavailableError also handled gracefully. attrs dict stubbed with tag/display/role/has_children=None. Boxes parsed via boxes.xyxy/conf/cls.tolist() for easy mocking."
     },
     {
       "id": "US-005",
