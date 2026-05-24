@@ -115,8 +115,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added --workers N option (default 1) to dataset build. workers=1 uses sequential loop; workers>1 uses ProcessPoolExecutor from concurrent.futures imported at module level. Module-level _PROCESS_RENDERER global ensures each worker process creates its own renderer on first use. _build_sample_worker is a module-level function (required for pickling). Progress reported as 'Rendered X/N images' for both modes. Tests monkeypatch ProcessPoolExecutor with a SyncExecutor that calls fn() directly to avoid real subprocess spawning."
     },
     {
       "id": "US-008",

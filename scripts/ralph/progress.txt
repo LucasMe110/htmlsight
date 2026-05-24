@@ -86,6 +86,22 @@ Started: 2026-05-23
   - `_compute_attr_accuracy` ignora imagens sem arquivo `.png` correspondente e exceções de `predict_image` — defensivo sem esconder erros
 ---
 
+## 2026-05-24 - US-007
+- Adicionado `--workers N` (default 1) ao comando `dataset build`
+- `workers=1`: loop sequencial com `typer.echo("Rendered X/N images")` por amostra
+- `workers>1`: `ProcessPoolExecutor(max_workers=workers)` com `as_completed` para progresso
+- `_build_sample_worker(args)` no nível do módulo (obrigatório para pickling do ProcessPoolExecutor)
+- `_PROCESS_RENDERER` global no módulo garante que cada processo worker cria seu próprio renderer na primeira amostra
+- Importação `from concurrent.futures import ProcessPoolExecutor, as_completed` no topo do arquivo
+- Testes mocam `ia_visao_web.cli.ProcessPoolExecutor` com `SyncExecutor` que chama `fn()` diretamente (sem subprocessos reais)
+- **Files changed:** `src/ia_visao_web/cli.py`, `tests/unit/test_cli.py`
+- **Learnings:**
+  - `ProcessPoolExecutor` deve ser importado no topo do módulo para monkeypatch funcionar em testes
+  - `SyncExecutor` com `concurrent.futures.Future()` + `set_result()` funciona com `as_completed()` pois as futures já estão completas ao retornar de `submit()`
+  - Global de módulo como cache de processo: `_PROCESS_RENDERER: PlaywrightRenderer | None = None` é inicializado em cada processo worker independentemente — sem compartilhamento entre processos
+  - Função module-level + `global var` dentro: mypy aceita se `global` declara a intenção de modificar; após `if var is None: var = create()`, usar `local = var` para narrowing de tipo
+---
+
 ## 2026-05-24 - US-006
 - Implementado `fetch_docs(output, force)` em `src/ia_visao_web/sources/fetch_bootstrap_docs.py`
 - `BOOTSTRAP_DOC_PAGES` dict com 9 componentes Bootstrap 5.3 (buttons, cards, forms, modals, navbars, alerts, tables, accordions, tabs) e suas URLs de documentação
