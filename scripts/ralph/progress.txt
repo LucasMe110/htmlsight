@@ -19,6 +19,8 @@ Started: 2026-05-23
 - Isolamento de módulo em tests: quando um test injeta torch/ultralytics mock ANTES de importar o módulo, use `monkeypatch.delitem(sys.modules, "ia_visao_web.model.XXX", raising=False)` no helper para garantir que o módulo seja reimportado com o mock — sem isso o módulo cacheado do test anterior pode ser reutilizado
 - Mypy `ignore_missing_imports = true` para torch: o `# type: ignore[assignment]` em `_mod = None` é desnecessário (a anotação seria `unused-ignore`)
 - Mypy `no-redef` em try/except: se declarar `var: Any` antes do try e depois `from pkg import var`, adicionar `# type: ignore[no-redef]` na linha do import
+- Torch `ignore_missing_imports = true`: mypy trata `torch` como `Any`, então `# type: ignore[union-attr]` em `torch.tensor(0.0)` é desnecessário (vira `unused-ignore`)
+- Para testes que exigem torch real (gradient, loss value): usar `pytest.importorskip("torch")` dentro do corpo do teste — são skipped quando torch não está instalado mas passam quando está
 
 ---
 
@@ -47,4 +49,16 @@ Started: 2026-05-23
   - `monkeypatch.delitem(sys.modules, "module", raising=False)` no helper de injeção do mock garante isolamento — sem isso o módulo cacheado do test anterior é reutilizado e o mock não tem efeito
   - `try: import torch as _torch; except ImportError: _torch = None` sem `# type: ignore[assignment]` — mypy aceita pois `ignore_missing_imports = true` para torch no pyproject.toml
   - Não é necessário herdar de `torch.utils.data.Dataset`; duck typing com `__len__` e `__getitem__` é suficiente e evita complexidade de herança condicional
+---
+
+## 2026-05-24 - US-003
+- Implementado `AttributeLoss(tag_classes, display_classes, role_classes)` em `src/ia_visao_web/model/loss.py`
+- `__call__(preds, targets, weights, mask)` aplica CE para tag/display/role e BCE para has_children apenas nos índices positivos do mask
+- Retorna `torch.tensor(0.0)` quando mask não tem positivos (loss exatamente 0)
+- Testes com torch real (loss > 0, gradient flow, near-zero loss perfeita) usam `pytest.importorskip("torch")` e são skipped sem torch
+- **Files changed:** `src/ia_visao_web/model/loss.py`, `tests/unit/model/test_loss.py`
+- **Learnings:**
+  - `# type: ignore[union-attr]` em `torch.tensor(0.0)` é desnecessário com `ignore_missing_imports = true` — mypy trata torch como Any
+  - `pytest.importorskip("torch")` no corpo do teste (não no nível do módulo) permite misturar testes com e sem torch no mesmo arquivo
+  - Para BCE loss, logit positivo (1e9) deve corresponder a has_children=1 e logit negativo (-1e9) a has_children=0
 ---

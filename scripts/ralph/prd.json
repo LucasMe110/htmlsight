@@ -48,8 +48,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "AttributeLoss(tag_classes, display_classes, role_classes) implements CE for tag/display/role and BCE for has_children. __call__(preds, targets, weights, mask) computes losses only on positive mask entries and returns a weighted scalar. Returns torch.tensor(0.0) when mask has no positives. Tests that require real torch use pytest.importorskip and are skipped when torch is absent — correct behavior for environments without torch."
     },
     {
       "id": "US-004",
