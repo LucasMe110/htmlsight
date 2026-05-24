@@ -316,7 +316,7 @@ def _fixture_detections() -> list[LabeledDetection]:
         LabeledDetection(
             "navbar",
             8,
-            BBox(24, 24, 600, 56),
+            BBox(24, 24, 300, 56),
             {
                 "tag": "nav",
                 "display": "flex",

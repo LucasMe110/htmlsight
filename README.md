@@ -6,7 +6,7 @@ HTML para treino multi-task.
 
 ## Estado atual
 
-O projeto já possui um caminho leve e testável para desenvolvimento local:
+O pipeline MVP está completo:
 
 - CLI Typer em `src/ia_visao_web/cli.py`.
 - Gerador sintético determinístico de páginas Bootstrap.
@@ -15,12 +15,24 @@ O projeto já possui um caminho leve e testável para desenvolvimento local:
 - Escrita de dataset em formato YOLO + sidecar JSON de atributos.
 - Validação de labels YOLO, alinhamento de sidecars, cobertura opcional por
   split, QA visual e relatório de distribuição.
-- Fronteiras opcionais para Playwright, Torch e Ultralytics.
-- Testes unitários e de integração para o que está implementado.
+- Backend real de treino Ultralytics YOLOv8 (requer `pip install ultralytics`).
+- Dataset loader PyTorch para multi-task (requer `pip install torch`).
+- Perda multi-task (CE para tag/display/role, BCE para has_children).
+- Predição real com pesos treinados (`predict --weights best.pt`).
+- Avaliação com mAP@50 e mAP@50-95 por classe + acurácia de atributos.
+- Geração paralela de dataset com `dataset build --workers N`.
+- Download de docs Bootstrap 5.3 com `dataset fetch-docs`.
+- Fronteiras opcionais para Playwright, Torch e Ultralytics com erros acionáveis.
+- Testes unitários e de integração (76 passam, 4 pulam por falta de torch).
 
-Ainda não há treino real YOLO/Ultralytics nem inferência com pesos treinados.
-O comando `predict` retorna JSON válido com `detections: []` enquanto o loader do
-modelo não existir.
+## Limitações conhecidas
+
+- O modelo ainda não foi treinado com dados reais; `predict` retorna `detections: []`
+  sem pesos treinados.
+- Métricas de atributos (tag, display, role, has_children) são stub até que
+  o modelo multi-task seja treinado de ponta a ponta.
+- O critério de 3000 imagens, 100 épocas e mAP real depende de Chromium/GPU
+  e não foi validado neste ambiente.
 
 ## Setup local
 
@@ -53,7 +65,7 @@ venv/bin/python -m ruff check .
 venv/bin/python -m mypy src
 ```
 
-Resultado mais recente: `30 passed`.
+Resultado mais recente: `76 passed, 4 skipped`.
 
 ## Rodar a CLI
 
@@ -69,6 +81,16 @@ Gerar um dataset sintético pequeno, sem Playwright:
 PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
   --synthetic-only \
   --count 2 \
+  --output /tmp/ia-visao-web-dataset
+```
+
+Gerar dataset em paralelo (4 workers):
+
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
+  --synthetic-only \
+  --count 100 \
+  --workers 4 \
   --output /tmp/ia-visao-web-dataset
 ```
 
@@ -99,9 +121,12 @@ PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate \
 
 Isso escreve overlays em `_qa/*.png` e um relatório em `_qa/report.json`.
 
-Observação: o validator usa por padrão o critério do spec de pelo menos 200
-instâncias por classe no `train`; datasets pequenos de smoke test podem falhar
-nessa validação completa.
+Baixar documentação Bootstrap 5.3:
+
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset fetch-docs \
+  --output data/sources/bootstrap-docs
+```
 
 Gerar um plano de treino avaliável, sem executar o backend YOLO:
 
@@ -121,27 +146,25 @@ PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train \
   --lambda-display 0.2 \
   --lambda-role 0.2 \
   --lambda-has-children 0.1 \
+  --plan-output /tmp/training-plan.json \
   --dry-run
 ```
-
-Isso escreve `training-plan.json` com hiperparâmetros, thresholds de avaliação,
-pesos das losses multi-task e opções para salvar predições, plots e exemplos de
-falha. O treino real ainda não executa Ultralytics; o plano serve para comparar
-experimentos quando o backend for implementado.
 
 Rodar predição stub:
 
 ```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict /tmp/ia-visao-web-dataset/images/train/synthetic-00000.png
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict \
+  /tmp/ia-visao-web-dataset/images/train/synthetic-00000.png
 ```
 
-Saída esperada no estado atual:
+Avaliar modelo com pesos treinados:
 
-```json
-{
-  "image": "/tmp/ia-visao-web-dataset/images/train/synthetic-00000.png",
-  "detections": []
-}
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli eval \
+  --dataset /tmp/ia-visao-web-dataset \
+  --weights runs/train/best.pt \
+  --split test \
+  --output /tmp/eval-report.json
 ```
 
 ## Estrutura
@@ -152,18 +175,18 @@ docs/superpowers/plans/      Plano de implementação
 docs/PDR-*.md                PDRs de evolução do projeto
 scripts/install-deps.sh      Instala dependências e browsers Playwright
 src/ia_visao_web/cli.py      CLI Typer
-src/ia_visao_web/sources/    Gerador de HTML Bootstrap
+src/ia_visao_web/sources/    Gerador de HTML Bootstrap + fetch de docs
 src/ia_visao_web/renderer/   Fronteira Playwright
 src/ia_visao_web/labeler/    Taxonomia, seletores, DOM walker, geometria
 src/ia_visao_web/dataset/    Split, writer YOLO+JSON, validator
-src/ia_visao_web/model/      Vocabulários e fronteiras Torch
-src/ia_visao_web/eval/       Métricas leves e serialização de predição
+src/ia_visao_web/model/      Vocabulários, dataset loader, loss, fronteiras Torch
+src/ia_visao_web/eval/       Métricas mAP, avaliador, serialização de predição
 tests/                       Testes unitários e integração
 ```
 
 ## Dependências pesadas
 
-Playwright, Torch, Ultralytics e pycocotools são dependências opcionais no
-`pyproject.toml`. O render real com Playwright foi validado neste ambiente. O
-treino real e métricas mAP ainda não foram implementados.
-# htmlsight
+Playwright, Torch e Ultralytics são dependências opcionais no `pyproject.toml`.
+Quando ausentes, as fronteiras levantam erros acionáveis com instrução de install.
+O render real com Playwright foi validado neste ambiente; treino real e métricas
+mAP dependem de Ultralytics e GPU.

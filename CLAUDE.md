@@ -17,8 +17,12 @@
 
 - Ver CLI sem instalar o pacote: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli --help`
 - Gerar dataset sintético leve sem Playwright: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 2 --output /tmp/ia-visao-web-dataset`
+- Gerar dataset em paralelo: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 100 --workers 4 --output /tmp/ia-visao-web-dataset`
 - Validar dataset: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate --root /tmp/ia-visao-web-dataset`
+- Validar dataset pequeno (sem mínimo de instâncias): `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate --root /tmp/ia-visao-web-dataset --min-train-instances 0`
+- Baixar docs Bootstrap 5.3: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset fetch-docs --output data/sources/bootstrap-docs`
 - Predição stub sem pesos treinados: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict <imagem.png>`
+- Avaliar modelo: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli eval --dataset <path> --weights <best.pt> --split test`
 
 ### Fluxo recomendado para testar manualmente
 
@@ -36,13 +40,13 @@ PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict /tmp/ia-visao-web-dat
 
 - `docs/superpowers/specs/`: spec aprovado do MVP.
 - `docs/superpowers/plans/`: plano de implementação detalhado.
-- `src/ia_visao_web/cli.py`: CLI Typer.
-- `src/ia_visao_web/sources/`: gerador determinístico de HTML Bootstrap.
+- `src/ia_visao_web/cli.py`: CLI Typer (fronteira pública).
+- `src/ia_visao_web/sources/`: gerador determinístico de HTML Bootstrap + fetch de docs.
 - `src/ia_visao_web/renderer/`: fronteira opcional com Playwright.
 - `src/ia_visao_web/labeler/`: taxonomia, seletores, geometria e filtro de matches DOM.
 - `src/ia_visao_web/dataset/`: split determinístico, writer YOLO+JSON e validator.
-- `src/ia_visao_web/model/`: vocabulários e interfaces opcionais de heads/loss Torch.
-- `src/ia_visao_web/eval/`: métricas leves e serialização de predição.
+- `src/ia_visao_web/model/`: vocabulários, dataset loader PyTorch, loss multi-task.
+- `src/ia_visao_web/eval/`: mAP metrics, evaluator, predict e serialização de predição.
 - `tests/`: testes unitários e de integração escritos antes do código de produção.
 - `data/dataset/`: saída gerada e ignorada pelo controle de versão.
 
@@ -52,8 +56,12 @@ PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict /tmp/ia-visao-web-dat
 - A CLI é a fronteira pública; módulos internos permanecem pequenos e testáveis.
 - Dependências pesadas ou opcionais, como Playwright, Torch e Ultralytics, devem falhar com mensagens acionáveis quando ausentes.
 - O caminho `dataset build --synthetic-only` gera imagens PIL simples com labels determinísticas para CI/TDD; o render real por Chromium fica atrás do módulo `renderer`.
-- `predict` retorna JSON válido com `detections: []` enquanto não houver pesos/model loader implementado.
-- O fluxo desta execução não usa commits nem inicializa git, por pedido explícito do usuário.
+- `predict` retorna JSON válido com `detections: []` quando pesos não estão disponíveis; com `--weights` usa ultralytics YOLO.
+- `_fixture_detections()` usa coordenadas absolutas que cabem em TODOS os viewports (máx 375px width): o bbox do navbar usa width=300 para caber no menor viewport (375x667).
+- `_build_sample_worker()` é função module-level (necessário para pickling no ProcessPoolExecutor).
+- `_PROCESS_RENDERER` global garante que cada worker process cria seu próprio renderer na primeira amostra.
+- `ProcessPoolExecutor` e `as_completed` importados no topo do módulo para permitir monkeypatch em testes.
+- `fetch_docs()` usa `urllib.request.urlopen` (stdlib) sem dependências extras.
 
 ## Possíveis Usos da IA
 
@@ -107,7 +115,8 @@ associando atributos HTML prováveis a cada detecção.
 
 ## Verificações da Última Execução
 
-- `venv/bin/python -m pytest -v`: 20 testes passaram.
+- `venv/bin/python -m pytest -v`: 76 testes passaram, 4 pulados (torch ausente).
 - `venv/bin/python -m ruff check .`: passou.
-- `venv/bin/python -m mypy src`: passou.
+- `venv/bin/python -m mypy src`: passou (26 arquivos fonte).
 - `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 2 --output /tmp/ia-visao-web-dataset-smoke`: passou.
+- Pipeline de integração completo (build → validate → train --dry-run → predict): passou.
