@@ -1,10 +1,17 @@
+import importlib
 import json
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 
 class TrainingUnavailableError(RuntimeError):
-    """Raised while the real Ultralytics training backend is not implemented."""
+    """Raised while the real Ultralytics training backend is not available."""
+
+
+class UltralyticsUnavailableError(RuntimeError):
+    """Raised when ultralytics is not installed."""
 
 
 @dataclass(frozen=True)
@@ -70,9 +77,42 @@ def write_training_plan(config: TrainingConfig, path: Path | None = None) -> Pat
     return output_path
 
 
+def _load_ultralytics() -> Any:
+    sentinel = object()
+    mod: Any = sys.modules.get("ultralytics", sentinel)
+    if mod is sentinel:
+        try:
+            mod = importlib.import_module("ultralytics")
+        except ImportError:
+            mod = None
+    if mod is None:
+        raise UltralyticsUnavailableError(
+            "ultralytics nao esta instalado. Instale com: pip install ultralytics"
+        )
+    return mod
+
+
 def train_model(config: TrainingConfig) -> None:
     write_training_plan(config)
-    raise TrainingUnavailableError(
-        "treino real ainda nao foi implementado; use --dry-run para gerar o plano "
-        "de hiperparametros e avaliacao sem executar o backend YOLO."
+
+    ultralytics = _load_ultralytics()
+
+    data_yaml = config.dataset / "data.yaml"
+    model = ultralytics.YOLO(f"{config.model_size}.pt")
+    model.train(
+        data=str(data_yaml),
+        epochs=config.epochs,
+        batch=config.batch_size,
+        imgsz=config.image_size,
+        optimizer=config.optimizer,
+        lr0=config.learning_rate,
+        momentum=config.momentum,
+        weight_decay=config.weight_decay,
+        seed=config.seed,
+        device=config.device,
+        workers=config.workers,
+        mosaic=config.mosaic,
+        fliplr=config.flip_lr,
+        patience=config.patience,
+        project=str(config.output),
     )

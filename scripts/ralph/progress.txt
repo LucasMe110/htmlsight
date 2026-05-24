@@ -1,0 +1,141 @@
+# Ralph Progress Log — htmlsight
+Started: 2026-05-23
+---
+
+## Codebase Patterns
+- Ruff B904: dentro de `except` clause, use `raise ... from exc` (não apenas `raise typer.Exit(...)` sem from) para satisfazer B904
+- Import order local (dentro de funções de test): usar ordem alfabética por subpacote: `eval.evaluator` < `eval.predict` (mesma regra I001 do módulo nível de arquivo)
+- `evaluate_model` em evaluator.py importa `UltralyticsUnavailableError` e `predict_image` de predict.py — evita duplicar a classe de erro e o CLI captura a mesma instância
+- Layout `src/` com `PYTHONPATH=src` para executar sem instalar o pacote
+- Dependências pesadas (torch, ultralytics, playwright) DEVEM falhar com erros acionáveis quando ausentes — use `try/except ImportError` e levante erro customizado com mensagem de install
+- Tests que precisam de torch/ultralytics usam `monkeypatch.setattr` para evitar dependência real
+- Formato YOLO: "class_id cx cy w h" normalizado 0-1, seis casas decimais
+- Sidecar JSON alinhado linha-a-linha com o .txt YOLO (índice i do JSON = bbox i do .txt)
+- TDD: sempre escreva o teste que falha ANTES de escrever a implementação
+- `venv/bin/python -m pytest -v` para rodar testes
+- `venv/bin/python -m ruff check .` para lint
+- `venv/bin/python -m mypy src` para typecheck
+- O `split_for_id` usa SHA1 do nome do arquivo módulo 10 para split determinístico
+- `DatasetWriter` cria estrutura images/labels/attrs/{train,val,test}/
+- Para mockar módulos opcionais em tests: use `monkeypatch.setitem(sys.modules, "modulo", mock)` — mais robusto que setattr pois intercepta o `sys.modules.get()` usado em `_load_ultralytics()`
+- Sentinel pattern para detectar módulo ausente: `sentinel = object(); mod = sys.modules.get("mod", sentinel); if mod is sentinel: importlib.import_module(...)`; nunca usar `...` (Ellipsis) como sentinel com mypy pois causa conflito de tipos
+- Isolamento de módulo em tests: quando um test injeta torch/ultralytics mock ANTES de importar o módulo, use `monkeypatch.delitem(sys.modules, "ia_visao_web.model.XXX", raising=False)` no helper para garantir que o módulo seja reimportado com o mock — sem isso o módulo cacheado do test anterior pode ser reutilizado
+- Mypy `ignore_missing_imports = true` para torch: o `# type: ignore[assignment]` em `_mod = None` é desnecessário (a anotação seria `unused-ignore`)
+- Mypy `no-redef` em try/except: se declarar `var: Any` antes do try e depois `from pkg import var`, adicionar `# type: ignore[no-redef]` na linha do import
+- Torch `ignore_missing_imports = true`: mypy trata `torch` como `Any`, então `# type: ignore[union-attr]` em `torch.tensor(0.0)` é desnecessário (vira `unused-ignore`)
+- Para testes que exigem torch real (gradient, loss value): usar `pytest.importorskip("torch")` dentro do corpo do teste — são skipped quando torch não está instalado mas passam quando está
+- `zip(..., strict=False)` obrigatório pelo ruff B905 quando os iteráveis têm o mesmo tamanho garantido por design (não use zip() simples)
+- Ruff I001: importações de `ia_visao_web` devem estar em ordem alfabética pelo subpacote (`dataset` < `eval` < `labeler` < `model` < `renderer` < `sources`)
+- Para CLI tests com monkeypatch de funções: usar `monkeypatch.setattr("ia_visao_web.cli.predict_image", ...)` (nome no módulo importador, não no módulo de origem)
+- Ultralytics Results: `boxes.xyxy.tolist()` / `boxes.conf.tolist()` / `boxes.cls.tolist()` é a interface mais simples para iterar detecções e mockar sem torch real
+
+---
+
+## 2026-05-23 - US-001
+- Implementado backend real de treinamento Ultralytics em `src/ia_visao_web/model/train.py`
+- Adicionado `UltralyticsUnavailableError` com mensagem de install acionável
+- `train_model()` chama `ultralytics.YOLO(model_size.pt).train(...)` com todos os campos de `TrainingConfig`
+- `_load_ultralytics()` usa `sys.modules` sentinel para suportar monkeypatching nos testes
+- **Files changed:** `src/ia_visao_web/model/train.py`, `tests/unit/model/test_train.py`
+- **Learnings:**
+  - `monkeypatch.setitem(sys.modules, "ultralytics", None)` simula módulo ausente de forma confiável
+  - Usar `Any` como return type de `_load_ultralytics()` evita erros de `attr-defined` no mypy
+  - O erro mypy em `playwright_renderer.py` (no-redef) é pré-existente e não relacionado
+  - `monkeypatch.setitem(sys.modules, "ultralytics", mock)` é preferível a `setattr(sys, 'modules', ...)` pois não substitui todo o dicionário
+---
+
+## 2026-05-23 - US-002
+- Implementado `WebComponentDataset` em `src/ia_visao_web/model/dataset_loader.py`
+- Carrega imagens PNG, labels YOLO (.txt) e sidecar JSON (.json) de attrs por amostra
+- `__len__` retorna número de imagens no split; `__getitem__` retorna dict com `image`, `boxes`, `attrs`, `image_id`
+- Levanta `FileNotFoundError` com nome do arquivo se sidecar JSON estiver ausente
+- Levanta `TorchUnavailableError` se torch não estiver instalado (verificado em `__init__`)
+- Corrigido erro pré-existente de mypy em `playwright_renderer.py` (no-redef) com `# type: ignore[no-redef]`
+- **Files changed:** `src/ia_visao_web/model/dataset_loader.py` (novo), `tests/unit/model/test_dataset_loader.py` (novo), `src/ia_visao_web/renderer/playwright_renderer.py` (fix mypy)
+- **Learnings:**
+  - `monkeypatch.delitem(sys.modules, "module", raising=False)` no helper de injeção do mock garante isolamento — sem isso o módulo cacheado do test anterior é reutilizado e o mock não tem efeito
+  - `try: import torch as _torch; except ImportError: _torch = None` sem `# type: ignore[assignment]` — mypy aceita pois `ignore_missing_imports = true` para torch no pyproject.toml
+  - Não é necessário herdar de `torch.utils.data.Dataset`; duck typing com `__len__` e `__getitem__` é suficiente e evita complexidade de herança condicional
+---
+
+## 2026-05-24 - US-004
+- Implementado `predict_image(image_path, weights_path)` em `src/ia_visao_web/eval/predict.py`
+- Adicionado `UltralyticsUnavailableError` e `_load_ultralytics()` usando o mesmo padrão sentinel de train.py
+- CLI `predict` aceita `--weights` opcional: sem pesos retorna `detections: []` com aviso; UltralyticsUnavailableError também capturado graciosamente
+- Boxes parseados via `boxes.xyxy/conf/cls.tolist()` — facilita mock nos testes sem precisar de torch real
+- Atributos stub: `tag`, `display`, `role`, `has_children` = None até modelo multi-task treinado
+- **Files changed:** `src/ia_visao_web/eval/predict.py`, `src/ia_visao_web/cli.py`, `tests/unit/eval/test_predict.py`, `tests/unit/test_cli.py`
+- **Learnings:**
+  - `boxes.xyxy.tolist()` / `boxes.conf.tolist()` / `boxes.cls.tolist()` é a interface mais simples de ultralytics para iterar detecções e mockar sem torch
+  - Para CLI tests com monkeypatch de funções importadas: usar `monkeypatch.setattr("ia_visao_web.cli.predict_image", ...)` (nome no módulo que importa, não no módulo de origem)
+  - `zip(..., strict=False)` obrigatório pelo ruff B905 quando os iteráveis têm o mesmo tamanho garantido por design
+  - Ruff I001: importações de `ia_visao_web` devem estar em ordem alfabética pelo subpacote (`dataset` < `eval` < `labeler` < `model` < `renderer` < `sources`)
+---
+
+## 2026-05-24 - US-005
+- Implementado `evaluate_model(dataset_path, weights_path, split)` em `src/ia_visao_web/eval/evaluator.py`
+- Chama `ultralytics.YOLO(weights).val(data=data_yaml, split=split)` para mAP@50 e mAP@50-95 por classe
+- `_compute_attr_accuracy` itera sidecars do split, chama `predict_image` por imagem e compara attrs previstos vs ground truth por posição (up to min(len(gt), len(pred)))
+- `UltralyticsUnavailableError` e `predict_image` importados de predict.py para reutilizar a mesma classe no CLI
+- CLI `eval` aceita `--dataset`, `--weights`, `--split`, `--output`; sai com código 1 em pesos ausentes ou ultralytics indisponível
+- Retorna JSON: `{mAP50, mAP50_95, per_class: [...], attr_accuracy: {...}}`
+- **Files changed:** `src/ia_visao_web/eval/evaluator.py` (novo), `src/ia_visao_web/cli.py`, `tests/unit/eval/test_evaluator.py` (novo), `tests/unit/test_cli.py`
+- **Learnings:**
+  - Ruff B904: `raise typer.Exit(code=1)` dentro de `except` precisa de `from exc` para não gerar B904
+  - Import order dentro de funções de test: `eval.evaluator` < `eval.predict` (I001 vale mesmo para imports locais)
+  - `_compute_attr_accuracy` ignora imagens sem arquivo `.png` correspondente e exceções de `predict_image` — defensivo sem esconder erros
+---
+
+## 2026-05-24 - US-008
+- Criado `tests/integration/test_full_pipeline.py`: build (5 imagens sintéticas) → validate → train --dry-run → predict (sem pesos = detections:[])
+- Descoberto e corrigido bug: `_fixture_detections()` tinha navbar com width=600 que excede o viewport mínimo 375px — corrigido para 300
+- README.md atualizado: contagem de testes (76 + 4 skipped), checklist completo de features, limitações conhecidas, comandos `--workers`, `fetch-docs` e `eval`
+- CLAUDE.md atualizado: novos comandos CLI, decisões arquiteturais para ProcessPoolExecutor, fixture bbox e fetch_docs, resultado das verificações
+- **Files changed:** `tests/integration/test_full_pipeline.py` (novo), `src/ia_visao_web/cli.py` (fix bbox), `README.md`, `CLAUDE.md`
+- **Learnings:**
+  - `_fixture_detections()` usa coordenadas absolutas — devem caber no menor viewport (375x667); `width=600` excedia 375px causando `bbox > 1` na validação
+  - Teste de integração pipeline completo: usar `--min-train-instances 0` para datasets pequenos de smoke test
+  - O `test_full_pipeline` não precisa de nenhuma dependência pesada (playwright/torch/ultralytics) — passa em CI limpo
+---
+
+## 2026-05-24 - US-007
+- Adicionado `--workers N` (default 1) ao comando `dataset build`
+- `workers=1`: loop sequencial com `typer.echo("Rendered X/N images")` por amostra
+- `workers>1`: `ProcessPoolExecutor(max_workers=workers)` com `as_completed` para progresso
+- `_build_sample_worker(args)` no nível do módulo (obrigatório para pickling do ProcessPoolExecutor)
+- `_PROCESS_RENDERER` global no módulo garante que cada processo worker cria seu próprio renderer na primeira amostra
+- Importação `from concurrent.futures import ProcessPoolExecutor, as_completed` no topo do arquivo
+- Testes mocam `ia_visao_web.cli.ProcessPoolExecutor` com `SyncExecutor` que chama `fn()` diretamente (sem subprocessos reais)
+- **Files changed:** `src/ia_visao_web/cli.py`, `tests/unit/test_cli.py`
+- **Learnings:**
+  - `ProcessPoolExecutor` deve ser importado no topo do módulo para monkeypatch funcionar em testes
+  - `SyncExecutor` com `concurrent.futures.Future()` + `set_result()` funciona com `as_completed()` pois as futures já estão completas ao retornar de `submit()`
+  - Global de módulo como cache de processo: `_PROCESS_RENDERER: PlaywrightRenderer | None = None` é inicializado em cada processo worker independentemente — sem compartilhamento entre processos
+  - Função module-level + `global var` dentro: mypy aceita se `global` declara a intenção de modificar; após `if var is None: var = create()`, usar `local = var` para narrowing de tipo
+---
+
+## 2026-05-24 - US-006
+- Implementado `fetch_docs(output, force)` em `src/ia_visao_web/sources/fetch_bootstrap_docs.py`
+- `BOOTSTRAP_DOC_PAGES` dict com 9 componentes Bootstrap 5.3 (buttons, cards, forms, modals, navbars, alerts, tables, accordions, tabs) e suas URLs de documentação
+- Usa `urllib.request.urlopen` (stdlib) — sem dependências extras
+- Pula arquivos já existentes por padrão; `force=True` re-baixa todos
+- CLI `dataset fetch-docs --output <path> [--force]` adicionado ao `dataset_app` sub-typer
+- Testes patcham `urlopen` no nível do módulo com `patch("ia_visao_web.sources.fetch_bootstrap_docs.urlopen", ...)`
+- **Files changed:** `src/ia_visao_web/sources/fetch_bootstrap_docs.py` (novo), `src/ia_visao_web/cli.py`, `tests/unit/sources/test_fetch_bootstrap_docs.py` (novo), `tests/unit/test_cli.py`
+- **Learnings:**
+  - `patch("module.name.urlopen", mock)` é mais confiável que `patch("urllib.request.urlopen", mock)` — intercepta exatamente o nome que o módulo importou
+  - `with urlopen(url) as response: data = response.read()` — mock precisa suportar `__enter__`/`__exit__` (MagicMock suporta automaticamente com `lambda self: self`)
+  - `# noqa: S310` em urlopen call para suprimir S310 (bandit audit) quando URL vem de constante interna, não de input do usuário
+---
+
+## 2026-05-24 - US-003
+- Implementado `AttributeLoss(tag_classes, display_classes, role_classes)` em `src/ia_visao_web/model/loss.py`
+- `__call__(preds, targets, weights, mask)` aplica CE para tag/display/role e BCE para has_children apenas nos índices positivos do mask
+- Retorna `torch.tensor(0.0)` quando mask não tem positivos (loss exatamente 0)
+- Testes com torch real (loss > 0, gradient flow, near-zero loss perfeita) usam `pytest.importorskip("torch")` e são skipped sem torch
+- **Files changed:** `src/ia_visao_web/model/loss.py`, `tests/unit/model/test_loss.py`
+- **Learnings:**
+  - `# type: ignore[union-attr]` em `torch.tensor(0.0)` é desnecessário com `ignore_missing_imports = true` — mypy trata torch como Any
+  - `pytest.importorskip("torch")` no corpo do teste (não no nível do módulo) permite misturar testes com e sem torch no mesmo arquivo
+  - Para BCE loss, logit positivo (1e9) deve corresponder a has_children=1 e logit negativo (-1e9) a has_children=0
+---

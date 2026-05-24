@@ -1,7 +1,8 @@
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from PIL import Image, ImageDraw
@@ -9,6 +10,9 @@ from PIL import Image, ImageDraw
 from ia_visao_web.dataset.splits import split_for_id
 from ia_visao_web.dataset.validator import DatasetValidator
 from ia_visao_web.dataset.writer import DatasetWriter
+from ia_visao_web.eval.evaluator import evaluate_model
+from ia_visao_web.eval.predict import UltralyticsUnavailableError, predict_image
+from ia_visao_web.eval.report import generate_report
 from ia_visao_web.labeler.dom_walker import DomWalker
 from ia_visao_web.labeler.geometry import BBox
 from ia_visao_web.labeler.walker import LabeledDetection, filter_matches
@@ -21,11 +25,34 @@ from ia_visao_web.model.train import (
     write_training_plan,
 )
 from ia_visao_web.renderer.playwright_renderer import PlaywrightRenderer, RendererUnavailableError
+from ia_visao_web.sources.fetch_bootstrap_docs import fetch_docs
 from ia_visao_web.sources.generator import BootstrapPageGenerator
 
 app = typer.Typer(help="Detector visual multi-task de componentes web.")
 dataset_app = typer.Typer(help="Gera e valida datasets YOLO com atributos HTML.")
 app.add_typer(dataset_app, name="dataset")
+
+# Process-local renderer: each worker process gets its own instance on first use
+_PROCESS_RENDERER: "PlaywrightRenderer | None" = None
+
+
+def _build_sample_worker(args: tuple[int, Path, bool]) -> str:
+    global _PROCESS_RENDERER
+    index, output, synthetic_only = args
+    sample_id = f"synthetic-{index:05d}"
+    page = BootstrapPageGenerator(seed=index).generate_page(page_id=sample_id)
+    if synthetic_only:
+        image = _synthetic_image(page.viewport)
+        detections = _fixture_detections()
+    else:
+        if _PROCESS_RENDERER is None:
+            _PROCESS_RENDERER = _playwright_renderer()
+        renderer = _PROCESS_RENDERER
+        walker = DomWalker()
+        image, detections = _render_and_label(renderer, walker, page.html, page.viewport)
+    split = split_for_id(sample_id)
+    DatasetWriter(output).write_sample(sample_id, image, detections, split=split)
+    return sample_id
 
 
 @dataset_app.command("build")
@@ -33,23 +60,22 @@ def dataset_build(
     output: Annotated[Path, typer.Option("--output", "-o")] = Path("data/dataset"),
     count: Annotated[int, typer.Option("--count", min=1)] = 3000,
     synthetic_only: Annotated[bool, typer.Option("--synthetic-only")] = False,
+    workers: Annotated[int, typer.Option("--workers", min=1)] = 1,
 ) -> None:
     """Gera o dataset."""
-    writer = DatasetWriter(output)
-    renderer = None if synthetic_only else _playwright_renderer()
-    walker = DomWalker()
-    for index in range(count):
-        sample_id = f"synthetic-{index:05d}"
-        page = BootstrapPageGenerator(seed=index).generate_page(page_id=sample_id)
-        if synthetic_only:
-            image = _synthetic_image(page.viewport)
-            detections = _fixture_detections()
-        else:
-            if renderer is None:  # pragma: no cover - defensive narrowing
-                raise typer.BadParameter("renderer indisponivel")
-            image, detections = _render_and_label(renderer, walker, page.html, page.viewport)
-        split = split_for_id(sample_id)
-        writer.write_sample(sample_id, image, detections, split=split)
+    args_list = [(i, output, synthetic_only) for i in range(count)]
+
+    if workers == 1:
+        for done, args in enumerate(args_list, 1):
+            _build_sample_worker(args)
+            typer.echo(f"Rendered {done}/{count} images")
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futs = [executor.submit(_build_sample_worker, a) for a in args_list]
+            for done, future in enumerate(as_completed(futs), 1):
+                future.result()
+                typer.echo(f"Rendered {done}/{count} images")
+
     typer.echo(f"dataset escrito em {output}")
 
 
@@ -79,6 +105,16 @@ def dataset_validate(
             typer.echo(error, err=True)
         raise typer.Exit(code=1)
     typer.echo("dataset ok")
+
+
+@dataset_app.command("fetch-docs")
+def dataset_fetch_docs(
+    output: Annotated[Path, typer.Option("--output", "-o")] = Path("data/sources/bootstrap-docs"),
+    force: Annotated[bool, typer.Option("--force")] = False,
+) -> None:
+    """Baixa páginas de documentação do Bootstrap 5.3."""
+    written = fetch_docs(output, force=force)
+    typer.echo(f"{len(written)} arquivos em {output}")
 
 
 @app.command()
@@ -178,18 +214,90 @@ def train(
 
 @app.command(name="eval")
 def eval_command(
+    dataset: Annotated[Path, typer.Option("--dataset", "-d")] = Path("data/dataset"),
+    weights: Annotated[Path | None, typer.Option("--weights", "-w")] = None,
     split: Annotated[str, typer.Option("--split")] = "test",
+    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
 ) -> None:
     """Calcula métricas no split informado."""
-    raise typer.BadParameter(f"eval ainda não foi implementado para split={split}")
+    if weights is None or not weights.exists():
+        typer.echo("erro: pesos nao encontrados. Use --weights <path>", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        report = evaluate_model(dataset, weights, split)
+    except UltralyticsUnavailableError as exc:
+        typer.echo(f"erro: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload: dict[str, Any] = {
+        "mAP50": report.map50,
+        "mAP50_95": report.map50_95,
+        "per_class": report.per_class,
+        "attr_accuracy": report.attr_accuracy,
+    }
+    report_json = json.dumps(payload, indent=2)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(report_json)
+        typer.echo(f"relatorio escrito em {output}")
+    else:
+        typer.echo(report_json)
 
 
 @app.command()
-def predict(image: Path) -> None:
+def report(
+    dataset: Annotated[Path, typer.Option("--dataset", "-d")] = Path("data/dataset"),
+    weights: Annotated[Path, typer.Option("--weights", "-w")] = Path(
+        "runs/baseline/weights/best.pt"
+    ),
+    split: Annotated[str, typer.Option("--split")] = "test",
+    output: Annotated[Path, typer.Option("--output", "-o")] = Path("runs/baseline/report"),
+) -> None:
+    """Gera relatório completo pós-treino em Markdown e JSON."""
+    if not weights.exists():
+        typer.echo(f"erro: pesos não encontrados em {weights}. Treine o modelo primeiro.", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Avaliando modelo em split '{split}'...")
+    try:
+        r = generate_report(dataset_path=dataset, weights_path=weights, split=split)
+    except UltralyticsUnavailableError as exc:
+        typer.echo(f"erro: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    r.save(output)
+    typer.echo(f"Relatório salvo em {output}/")
+    typer.echo(f"  {output}/report.md   ← Markdown para post/README")
+    typer.echo(f"  {output}/report.json ← JSON com todas as métricas")
+    typer.echo(
+        f"\nmAP@50: {r.map50:.3f}  |  mAP@50-95: {r.map50_95:.3f}"
+        f"  |  P: {r.precision:.3f}  |  R: {r.recall:.3f}"
+    )
+
+
+@app.command()
+def predict(
+    image: Path,
+    weights: Annotated[Path | None, typer.Option("--weights", "-w")] = None,
+) -> None:
     """Roda inferência em uma imagem e imprime JSON."""
     if not image.exists():
         raise typer.BadParameter(f"imagem não encontrada: {image}")
-    typer.echo(json.dumps({"image": str(image), "detections": []}, indent=2))
+
+    if weights is None or not weights.exists():
+        if weights is not None:
+            typer.echo(f"aviso: pesos não encontrados em {weights}", err=True)
+        typer.echo(json.dumps({"image": str(image), "detections": []}, indent=2))
+        return
+
+    try:
+        detections = predict_image(image, weights)
+        typer.echo(json.dumps({"image": str(image), "detections": detections}, indent=2))
+    except UltralyticsUnavailableError as exc:
+        typer.echo(f"aviso: {exc}", err=True)
+        typer.echo(json.dumps({"image": str(image), "detections": []}, indent=2))
 
 
 def main() -> None:
@@ -240,7 +348,7 @@ def _fixture_detections() -> list[LabeledDetection]:
         LabeledDetection(
             "navbar",
             8,
-            BBox(24, 24, 600, 56),
+            BBox(24, 24, 300, 56),
             {
                 "tag": "nav",
                 "display": "flex",

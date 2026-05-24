@@ -1,169 +1,245 @@
-# ia-visao-web
+# htmlsight
 
-MVP em Python para gerar screenshots sintéticos de páginas Bootstrap, rotular
-componentes visuais por DOM e produzir um dataset YOLO com sidecars de atributos
-HTML para treino multi-task.
+Detector visual multi-task de componentes web Bootstrap treinado com dataset sintético auto-rotulado.
 
-## Estado atual
-
-O projeto já possui um caminho leve e testável para desenvolvimento local:
-
-- CLI Typer em `src/ia_visao_web/cli.py`.
-- Gerador sintético determinístico de páginas Bootstrap.
-- Render real opcional com Playwright/Chromium.
-- DOM walker real que aplica a taxonomia sobre a página renderizada.
-- Escrita de dataset em formato YOLO + sidecar JSON de atributos.
-- Validação de labels YOLO, alinhamento de sidecars, cobertura opcional por
-  split, QA visual e relatório de distribuição.
-- Fronteiras opcionais para Playwright, Torch e Ultralytics.
-- Testes unitários e de integração para o que está implementado.
-
-Ainda não há treino real YOLO/Ultralytics nem inferência com pesos treinados.
-O comando `predict` retorna JSON válido com `detections: []` enquanto o loader do
-modelo não existir.
-
-## Setup local
-
-Este ambiente não tem `uv` instalado, então o fluxo validado usa `venv`:
-
-```bash
-scripts/install-deps.sh
-```
-
-O script instala o pacote em modo editable com os extras `dev` e `render`, e
-baixa o Chromium do Playwright em `venv/ms-playwright`.
-
-Para instalar sem baixar Chromium:
-
-```bash
-INSTALL_CHROMIUM=0 scripts/install-deps.sh
-```
-
-Para incluir dependências pesadas de modelo:
-
-```bash
-INSTALL_MODEL=1 scripts/install-deps.sh
-```
-
-## Rodar verificações
-
-```bash
-venv/bin/python -m pytest -v
-venv/bin/python -m ruff check .
-venv/bin/python -m mypy src
-```
-
-Resultado mais recente: `30 passed`.
-
-## Rodar a CLI
-
-Ver ajuda:
-
-```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli --help
-```
-
-Gerar um dataset sintético pequeno, sem Playwright:
-
-```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
-  --synthetic-only \
-  --count 2 \
-  --output /tmp/ia-visao-web-dataset
-```
-
-Gerar um dataset real pequeno com Playwright + DOM walker:
-
-```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
-  --count 2 \
-  --output /tmp/ia-visao-web-dataset-real
-```
-
-Validar um dataset:
-
-```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate \
-  --root /tmp/ia-visao-web-dataset
-```
-
-Validar dataset pequeno sem exigir 200 instâncias por classe e gerar QA visual:
-
-```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate \
-  --root /tmp/ia-visao-web-dataset-real \
-  --min-train-instances 0 \
-  --qa-samples 2 \
-  --report
-```
-
-Isso escreve overlays em `_qa/*.png` e um relatório em `_qa/report.json`.
-
-Observação: o validator usa por padrão o critério do spec de pelo menos 200
-instâncias por classe no `train`; datasets pequenos de smoke test podem falhar
-nessa validação completa.
-
-Gerar um plano de treino avaliável, sem executar o backend YOLO:
-
-```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train \
-  --dataset /tmp/ia-visao-web-dataset-real \
-  --output /tmp/ia-visao-web-runs/baseline \
-  --epochs 100 \
-  --batch-size 16 \
-  --image-size 640 \
-  --eval-split test \
-  --eval-every 2 \
-  --conf-threshold 0.25 \
-  --iou-threshold 0.50 \
-  --failure-examples 50 \
-  --lambda-tag 0.2 \
-  --lambda-display 0.2 \
-  --lambda-role 0.2 \
-  --lambda-has-children 0.1 \
-  --dry-run
-```
-
-Isso escreve `training-plan.json` com hiperparâmetros, thresholds de avaliação,
-pesos das losses multi-task e opções para salvar predições, plots e exemplos de
-falha. O treino real ainda não executa Ultralytics; o plano serve para comparar
-experimentos quando o backend for implementado.
-
-Rodar predição stub:
-
-```bash
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict /tmp/ia-visao-web-dataset/images/train/synthetic-00000.png
-```
-
-Saída esperada no estado atual:
+Dado um screenshot de uma página web, o modelo detecta **botões, inputs, cards, navbars, modais** e mais 12 classes, retornando bounding boxes com score de confiança — tudo a partir de uma imagem, sem tocar no DOM.
 
 ```json
 {
-  "image": "/tmp/ia-visao-web-dataset/images/train/synthetic-00000.png",
-  "detections": []
+  "image": "pagina.png",
+  "detections": [
+    { "class": "button", "score": 0.94, "bbox": [120, 45, 80, 32], "attrs": {...} },
+    { "class": "navbar", "score": 0.99, "bbox": [0, 0, 1280, 56],  "attrs": {...} },
+    { "class": "card",   "score": 0.87, "bbox": [40, 120, 320, 200], "attrs": {...} }
+  ]
 }
 ```
 
-## Estrutura
+---
 
-```text
-docs/superpowers/specs/      Spec aprovado
-docs/superpowers/plans/      Plano de implementação
-docs/PDR-*.md                PDRs de evolução do projeto
-scripts/install-deps.sh      Instala dependências e browsers Playwright
-src/ia_visao_web/cli.py      CLI Typer
-src/ia_visao_web/sources/    Gerador de HTML Bootstrap
-src/ia_visao_web/renderer/   Fronteira Playwright
-src/ia_visao_web/labeler/    Taxonomia, seletores, DOM walker, geometria
-src/ia_visao_web/dataset/    Split, writer YOLO+JSON, validator
-src/ia_visao_web/model/      Vocabulários e fronteiras Torch
-src/ia_visao_web/eval/       Métricas leves e serialização de predição
-tests/                       Testes unitários e integração
+## Pré-requisitos
+
+| Requisito | Versão mínima | Notas |
+|-----------|---------------|-------|
+| Python | 3.11+ | |
+| Git | qualquer | |
+| GPU CUDA | recomendado | CPU funciona, mas o treino é muito lento |
+
+---
+
+## Instalação rápida
+
+```bash
+git clone git@github.com:LucasMe110/htmlsight.git
+cd htmlsight
+INSTALL_MODEL=1 bash scripts/install-deps.sh
 ```
 
-## Dependências pesadas
+Isso cria um `venv/` local com **todas** as dependências:
+- `torch` + `ultralytics` (YOLOv8)
+- `playwright` + Chromium headless
+- `pytest`, `ruff`, `mypy` (dev)
 
-Playwright, Torch, Ultralytics e pycocotools são dependências opcionais no
-`pyproject.toml`. O render real com Playwright foi validado neste ambiente. O
-treino real e métricas mAP ainda não foram implementados.
-# htmlsight
+> **Sem GPU?** O treino funciona em CPU mas leva horas. Recomendado usar Google Colab ou uma máquina com GPU para o passo de treino.
+
+---
+
+## Instalação por partes
+
+### Só rodar testes / gerar dataset sintético (sem GPU, sem Chromium)
+
+```bash
+bash scripts/install-deps.sh INSTALL_CHROMIUM=0
+```
+
+### Com Playwright mas sem torch/ultralytics
+
+```bash
+bash scripts/install-deps.sh
+```
+
+### Completo (Playwright + torch + ultralytics)
+
+```bash
+INSTALL_MODEL=1 bash scripts/install-deps.sh
+```
+
+---
+
+## Verificar instalação
+
+```bash
+venv/bin/python -m pytest -v          # 85 testes devem passar
+venv/bin/python -m ruff check .       # lint
+venv/bin/python -m mypy src           # typecheck
+```
+
+---
+
+## Workflow completo
+
+### 1. Gerar dataset (3000 imagens com Playwright)
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH=venv/ms-playwright \
+  PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
+  --count 3000 \
+  --workers 4 \
+  --output data/dataset
+```
+
+> Para testar sem Playwright, use `--synthetic-only` (gera imagens PIL simples):
+> ```bash
+> PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
+>   --synthetic-only --count 50 --output data/dataset
+> ```
+
+### 2. Validar dataset
+
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate \
+  --root data/dataset \
+  --report
+```
+
+Escreve overlays de QA em `data/dataset/_qa/` e um JSON com distribuição de classes.
+
+### 3. Treinar
+
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train \
+  --dataset data/dataset \
+  --output runs/baseline \
+  --epochs 100 \
+  --batch-size 16
+```
+
+Os pesos são salvos em `runs/baseline/weights/best.pt` (melhor época) e `last.pt`.
+
+> Ver o plano de treino sem executar:
+> ```bash
+> PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train \
+>   --dataset data/dataset --output runs/baseline --dry-run
+> ```
+
+### 4. Gerar relatório de métricas
+
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli report \
+  --dataset data/dataset \
+  --weights runs/baseline/weights/best.pt \
+  --output runs/baseline/report
+```
+
+Gera `runs/baseline/report/report.md` (Markdown para post/README) e `report.json` (métricas completas).
+
+### 5. Predição em imagem
+
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict \
+  screenshot.png \
+  --weights runs/baseline/weights/best.pt
+```
+
+Sem `--weights`, retorna `detections: []` (útil para testar o pipeline).
+
+### 6. Avaliação de métricas
+
+```bash
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli eval \
+  --dataset data/dataset \
+  --weights runs/baseline/weights/best.pt \
+  --split test
+```
+
+---
+
+## Taxonomia — 17 classes detectadas
+
+| Classe | Seletor CSS principal |
+|--------|-----------------------|
+| `button` | `button.btn`, `.btn`, `[role='button']` |
+| `input` | `input[type='text']`, email, password, ... |
+| `textarea` | `textarea` |
+| `checkbox` | `input[type='checkbox']` |
+| `radio` | `input[type='radio']` |
+| `select` | `select`, `.form-select` |
+| `link` | `a:not(.btn):not(.nav-link)` |
+| `card` | `.card` |
+| `navbar` | `.navbar` |
+| `tabs` | `.nav-tabs`, `.nav-pills` |
+| `modal` | `.modal.show`, `.modal-dialog` |
+| `table` | `table` |
+| `alert` | `.alert` |
+| `accordion` | `.accordion` |
+| `image` | `img`, `picture` |
+| `text` | `p`, `h1`–`h6`, `.lead` |
+| `container` | `.container`, `.row`, `.col`, `.card-body` |
+
+---
+
+## Estrutura do projeto
+
+```
+htmlsight/
+├── scripts/
+│   ├── install-deps.sh        # setup do ambiente
+│   └── ralph/                 # loop de desenvolvimento autônomo
+├── src/ia_visao_web/
+│   ├── cli.py                 # CLI Typer (fronteira pública)
+│   ├── sources/               # gerador HTML Bootstrap + fetch docs
+│   ├── renderer/              # fronteira Playwright (opcional)
+│   ├── labeler/               # taxonomia, seletores, DOM walker, geometria
+│   ├── dataset/               # split, writer YOLO+JSON, validator
+│   ├── model/                 # vocab, dataset loader PyTorch, loss multi-task
+│   └── eval/                  # mAP, evaluator, predict, report
+├── tests/
+│   ├── unit/                  # testes por módulo
+│   └── integration/           # pipeline end-to-end
+├── docs/
+│   └── superpowers/           # spec e plano de implementação
+├── pyproject.toml
+└── CLAUDE.md                  # instruções para agentes IA
+```
+
+---
+
+## Desenvolvimento
+
+```bash
+# Rodar testes
+venv/bin/python -m pytest -v
+
+# Lint
+venv/bin/python -m ruff check .
+
+# Typecheck
+venv/bin/python -m mypy src
+
+# Dataset sintético rápido para smoke test
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
+  --synthetic-only --count 5 --output /tmp/smoke
+```
+
+O projeto usa **TDD** — testes são escritos antes da implementação. Todas as dependências pesadas (Playwright, torch, Ultralytics) falham com erros acionáveis quando não instaladas.
+
+---
+
+## Dependências
+
+| Dependência | Extra | Uso |
+|-------------|-------|-----|
+| `typer`, `pillow`, `jinja2`, `faker`, `pyyaml` | _(base)_ | geração e CLI |
+| `playwright` | `render` | renderização real com Chromium |
+| `torch`, `ultralytics`, `pycocotools` | `model` | treino e avaliação |
+| `pytest`, `ruff`, `mypy` | `dev` | qualidade de código |
+
+---
+
+## Casos de uso
+
+- **Testes visuais automatizados** — verificar se componentes aparecem sem depender do DOM
+- **QA de interfaces** — comparar screenshots entre versões
+- **Agentes de IA** — localizar onde clicar ou preencher em uma tela
+- **Image-to-code** — etapa intermediária para reconstruir HTML a partir de screenshot
+- **Monitoramento visual** — checar se telas críticas renderizaram corretamente em produção
