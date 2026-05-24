@@ -98,8 +98,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "fetch_docs(output, force) in sources/fetch_bootstrap_docs.py uses urllib.request.urlopen (stdlib, no extra deps). BOOTSTRAP_DOC_PAGES dict maps 9 component names to Bootstrap 5.3 doc URLs. Skips existing files by default; --force re-downloads. Tests patch urlopen at module level. CLI dataset fetch-docs added to dataset_app sub-typer."
     },
     {
       "id": "US-007",

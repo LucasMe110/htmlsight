@@ -86,6 +86,20 @@ Started: 2026-05-23
   - `_compute_attr_accuracy` ignora imagens sem arquivo `.png` correspondente e exceções de `predict_image` — defensivo sem esconder erros
 ---
 
+## 2026-05-24 - US-006
+- Implementado `fetch_docs(output, force)` em `src/ia_visao_web/sources/fetch_bootstrap_docs.py`
+- `BOOTSTRAP_DOC_PAGES` dict com 9 componentes Bootstrap 5.3 (buttons, cards, forms, modals, navbars, alerts, tables, accordions, tabs) e suas URLs de documentação
+- Usa `urllib.request.urlopen` (stdlib) — sem dependências extras
+- Pula arquivos já existentes por padrão; `force=True` re-baixa todos
+- CLI `dataset fetch-docs --output <path> [--force]` adicionado ao `dataset_app` sub-typer
+- Testes patcham `urlopen` no nível do módulo com `patch("ia_visao_web.sources.fetch_bootstrap_docs.urlopen", ...)`
+- **Files changed:** `src/ia_visao_web/sources/fetch_bootstrap_docs.py` (novo), `src/ia_visao_web/cli.py`, `tests/unit/sources/test_fetch_bootstrap_docs.py` (novo), `tests/unit/test_cli.py`
+- **Learnings:**
+  - `patch("module.name.urlopen", mock)` é mais confiável que `patch("urllib.request.urlopen", mock)` — intercepta exatamente o nome que o módulo importou
+  - `with urlopen(url) as response: data = response.read()` — mock precisa suportar `__enter__`/`__exit__` (MagicMock suporta automaticamente com `lambda self: self`)
+  - `# noqa: S310` em urlopen call para suprimir S310 (bandit audit) quando URL vem de constante interna, não de input do usuário
+---
+
 ## 2026-05-24 - US-003
 - Implementado `AttributeLoss(tag_classes, display_classes, role_classes)` em `src/ia_visao_web/model/loss.py`
 - `__call__(preds, targets, weights, mask)` aplica CE para tag/display/role e BCE para has_children apenas nos índices positivos do mask
