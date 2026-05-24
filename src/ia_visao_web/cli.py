@@ -23,6 +23,7 @@ from ia_visao_web.model.train import (
     write_training_plan,
 )
 from ia_visao_web.renderer.playwright_renderer import PlaywrightRenderer, RendererUnavailableError
+from ia_visao_web.sources.fetch_bootstrap_docs import fetch_docs
 from ia_visao_web.sources.generator import BootstrapPageGenerator
 
 app = typer.Typer(help="Detector visual multi-task de componentes web.")
@@ -81,6 +82,16 @@ def dataset_validate(
             typer.echo(error, err=True)
         raise typer.Exit(code=1)
     typer.echo("dataset ok")
+
+
+@dataset_app.command("fetch-docs")
+def dataset_fetch_docs(
+    output: Annotated[Path, typer.Option("--output", "-o")] = Path("data/sources/bootstrap-docs"),
+    force: Annotated[bool, typer.Option("--force")] = False,
+) -> None:
+    """Baixa páginas de documentação do Bootstrap 5.3."""
+    written = fetch_docs(output, force=force)
+    typer.echo(f"{len(written)} arquivos em {output}")
 
 
 @app.command()

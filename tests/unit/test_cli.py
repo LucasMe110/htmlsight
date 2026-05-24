@@ -164,6 +164,38 @@ def test_eval_exits_1_when_ultralytics_unavailable(tmp_path, monkeypatch):
     assert result.exit_code == 1
 
 
+def test_dataset_fetch_docs_creates_files(tmp_path, monkeypatch):
+    from ia_visao_web.sources.fetch_bootstrap_docs import BOOTSTRAP_DOC_PAGES
+
+    written = [tmp_path / f"{name}.html" for name in BOOTSTRAP_DOC_PAGES]
+    monkeypatch.setattr("ia_visao_web.cli.fetch_docs", lambda out, force=False: written)
+
+    result = CliRunner().invoke(
+        app, ["dataset", "fetch-docs", "--output", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0
+    assert str(len(written)) in result.stdout
+
+
+def test_dataset_fetch_docs_force_flag(tmp_path, monkeypatch):
+    called_with: dict[str, object] = {}
+
+    def fake_fetch(out, force=False):
+        called_with["out"] = out
+        called_with["force"] = force
+        return []
+
+    monkeypatch.setattr("ia_visao_web.cli.fetch_docs", fake_fetch)
+
+    result = CliRunner().invoke(
+        app, ["dataset", "fetch-docs", "--output", str(tmp_path), "--force"]
+    )
+
+    assert result.exit_code == 0
+    assert called_with["force"] is True
+
+
 def test_train_dry_run_writes_evaluation_plan(tmp_path):
     plan_path = tmp_path / "plan.json"
 
