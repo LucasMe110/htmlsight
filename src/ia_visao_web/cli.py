@@ -1,7 +1,7 @@
 import json
 from io import BytesIO
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from PIL import Image, ImageDraw
@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw
 from ia_visao_web.dataset.splits import split_for_id
 from ia_visao_web.dataset.validator import DatasetValidator
 from ia_visao_web.dataset.writer import DatasetWriter
+from ia_visao_web.eval.evaluator import evaluate_model
 from ia_visao_web.eval.predict import UltralyticsUnavailableError, predict_image
 from ia_visao_web.labeler.dom_walker import DomWalker
 from ia_visao_web.labeler.geometry import BBox
@@ -179,10 +180,36 @@ def train(
 
 @app.command(name="eval")
 def eval_command(
+    dataset: Annotated[Path, typer.Option("--dataset", "-d")] = Path("data/dataset"),
+    weights: Annotated[Path | None, typer.Option("--weights", "-w")] = None,
     split: Annotated[str, typer.Option("--split")] = "test",
+    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
 ) -> None:
     """Calcula métricas no split informado."""
-    raise typer.BadParameter(f"eval ainda não foi implementado para split={split}")
+    if weights is None or not weights.exists():
+        typer.echo("erro: pesos nao encontrados. Use --weights <path>", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        report = evaluate_model(dataset, weights, split)
+    except UltralyticsUnavailableError as exc:
+        typer.echo(f"erro: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload: dict[str, Any] = {
+        "mAP50": report.map50,
+        "mAP50_95": report.map50_95,
+        "per_class": report.per_class,
+        "attr_accuracy": report.attr_accuracy,
+    }
+    report_json = json.dumps(payload, indent=2)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(report_json)
+        typer.echo(f"relatorio escrito em {output}")
+    else:
+        typer.echo(report_json)
 
 
 @app.command()

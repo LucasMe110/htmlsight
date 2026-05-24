@@ -100,6 +100,70 @@ def test_predict_with_weights_handles_ultralytics_unavailable(tmp_path, monkeypa
     assert payload["detections"] == []
 
 
+def test_eval_without_weights_exits_with_code_1(tmp_path):
+    missing = tmp_path / "nonexistent.pt"
+
+    result = CliRunner().invoke(
+        app,
+        ["eval", "--dataset", str(tmp_path / "dataset"), "--weights", str(missing)],
+    )
+
+    assert result.exit_code == 1
+
+
+def test_eval_prints_json_report(tmp_path, monkeypatch):
+    weights = tmp_path / "best.pt"
+    weights.write_bytes(b"fake-weights")
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+
+    from ia_visao_web.eval.evaluator import EvaluationReport
+
+    fake_report = EvaluationReport(
+        map50=0.85,
+        map50_95=0.65,
+        per_class=[{"class": "button", "class_id": 0, "map50_95": 0.65}],
+        attr_accuracy={"tag": 0.9, "display": 0.8, "role": 0.7, "has_children": 0.95},
+    )
+    monkeypatch.setattr(
+        "ia_visao_web.cli.evaluate_model", lambda d, w, split: fake_report
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["eval", "--dataset", str(dataset), "--weights", str(weights)],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert "mAP50" in payload
+    assert "mAP50_95" in payload
+    assert "per_class" in payload
+    assert "attr_accuracy" in payload
+    assert abs(payload["mAP50"] - 0.85) < 1e-6
+
+
+def test_eval_exits_1_when_ultralytics_unavailable(tmp_path, monkeypatch):
+    weights = tmp_path / "best.pt"
+    weights.write_bytes(b"fake-weights")
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+
+    from ia_visao_web.eval.predict import UltralyticsUnavailableError
+
+    def raise_unavailable(d, w, split):
+        raise UltralyticsUnavailableError("pip install ultralytics")
+
+    monkeypatch.setattr("ia_visao_web.cli.evaluate_model", raise_unavailable)
+
+    result = CliRunner().invoke(
+        app,
+        ["eval", "--dataset", str(dataset), "--weights", str(weights)],
+    )
+
+    assert result.exit_code == 1
+
+
 def test_train_dry_run_writes_evaluation_plan(tmp_path):
     plan_path = tmp_path / "plan.json"
 
