@@ -3,6 +3,7 @@ import json
 from typer.testing import CliRunner
 
 from ia_visao_web.cli import app
+from ia_visao_web.eval.predict import UltralyticsUnavailableError
 
 
 def test_cli_shows_top_level_commands():
@@ -43,6 +44,60 @@ def test_dataset_build_real_reports_missing_playwright(monkeypatch, tmp_path):
 
     assert result.exit_code != 0
     assert "playwright" in result.output
+
+
+def test_predict_with_missing_weights_warns_and_returns_empty(tmp_path):
+    image = tmp_path / "page.png"
+    image.write_bytes(b"not-a-real-image")
+    missing_weights = tmp_path / "nonexistent.pt"
+
+    result = CliRunner().invoke(app, ["predict", str(image), "--weights", str(missing_weights)])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["detections"] == []
+
+
+def test_predict_with_weights_calls_predict_image(tmp_path, monkeypatch):
+    image = tmp_path / "page.png"
+    image.write_bytes(b"not-a-real-image")
+    weights = tmp_path / "best.pt"
+    weights.write_bytes(b"fake-weights")
+
+    fake_detections = [
+        {
+            "class": "button",
+            "score": 0.9,
+            "bbox": [0, 0, 100, 50],
+            "attrs": {"tag": None, "display": None, "role": None, "has_children": None},
+        }
+    ]
+    monkeypatch.setattr("ia_visao_web.cli.predict_image", lambda img, wts: fake_detections)
+
+    result = CliRunner().invoke(app, ["predict", str(image), "--weights", str(weights)])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload["detections"]) == 1
+    assert payload["detections"][0]["class"] == "button"
+
+
+def test_predict_with_weights_handles_ultralytics_unavailable(tmp_path, monkeypatch):
+    image = tmp_path / "page.png"
+    image.write_bytes(b"not-a-real-image")
+    weights = tmp_path / "best.pt"
+    weights.write_bytes(b"fake-weights")
+
+    def _raise(_img: object, _wts: object) -> object:
+        raise UltralyticsUnavailableError("pip install ultralytics")
+
+    monkeypatch.setattr("ia_visao_web.cli.predict_image", _raise)
+
+    result = CliRunner().invoke(app, ["predict", str(image), "--weights", str(weights)])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["detections"] == []
 
 
 def test_train_dry_run_writes_evaluation_plan(tmp_path):

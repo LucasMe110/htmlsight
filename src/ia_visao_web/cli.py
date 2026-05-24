@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw
 from ia_visao_web.dataset.splits import split_for_id
 from ia_visao_web.dataset.validator import DatasetValidator
 from ia_visao_web.dataset.writer import DatasetWriter
+from ia_visao_web.eval.predict import UltralyticsUnavailableError, predict_image
 from ia_visao_web.labeler.dom_walker import DomWalker
 from ia_visao_web.labeler.geometry import BBox
 from ia_visao_web.labeler.walker import LabeledDetection, filter_matches
@@ -185,11 +186,26 @@ def eval_command(
 
 
 @app.command()
-def predict(image: Path) -> None:
+def predict(
+    image: Path,
+    weights: Annotated[Path | None, typer.Option("--weights", "-w")] = None,
+) -> None:
     """Roda inferência em uma imagem e imprime JSON."""
     if not image.exists():
         raise typer.BadParameter(f"imagem não encontrada: {image}")
-    typer.echo(json.dumps({"image": str(image), "detections": []}, indent=2))
+
+    if weights is None or not weights.exists():
+        if weights is not None:
+            typer.echo(f"aviso: pesos não encontrados em {weights}", err=True)
+        typer.echo(json.dumps({"image": str(image), "detections": []}, indent=2))
+        return
+
+    try:
+        detections = predict_image(image, weights)
+        typer.echo(json.dumps({"image": str(image), "detections": detections}, indent=2))
+    except UltralyticsUnavailableError as exc:
+        typer.echo(f"aviso: {exc}", err=True)
+        typer.echo(json.dumps({"image": str(image), "detections": []}, indent=2))
 
 
 def main() -> None:
