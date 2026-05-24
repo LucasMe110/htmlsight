@@ -130,8 +130,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "tests/integration/test_full_pipeline.py covers: build (synthetic-only, 5 images) -> validate (min-train-instances=0) -> train --dry-run -> predict (no weights, empty detections). Also fixed _fixture_detections() navbar width from 600 to 300 to fit smallest viewport (375px). README.md updated with 76 tests, full feature checklist, eval command, --workers example. CLAUDE.md updated with new commands, architectural decisions for ProcessPoolExecutor pattern, and updated verification results."
     }
   ]
 }

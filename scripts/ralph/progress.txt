@@ -86,6 +86,18 @@ Started: 2026-05-23
   - `_compute_attr_accuracy` ignora imagens sem arquivo `.png` correspondente e exceções de `predict_image` — defensivo sem esconder erros
 ---
 
+## 2026-05-24 - US-008
+- Criado `tests/integration/test_full_pipeline.py`: build (5 imagens sintéticas) → validate → train --dry-run → predict (sem pesos = detections:[])
+- Descoberto e corrigido bug: `_fixture_detections()` tinha navbar com width=600 que excede o viewport mínimo 375px — corrigido para 300
+- README.md atualizado: contagem de testes (76 + 4 skipped), checklist completo de features, limitações conhecidas, comandos `--workers`, `fetch-docs` e `eval`
+- CLAUDE.md atualizado: novos comandos CLI, decisões arquiteturais para ProcessPoolExecutor, fixture bbox e fetch_docs, resultado das verificações
+- **Files changed:** `tests/integration/test_full_pipeline.py` (novo), `src/ia_visao_web/cli.py` (fix bbox), `README.md`, `CLAUDE.md`
+- **Learnings:**
+  - `_fixture_detections()` usa coordenadas absolutas — devem caber no menor viewport (375x667); `width=600` excedia 375px causando `bbox > 1` na validação
+  - Teste de integração pipeline completo: usar `--min-train-instances 0` para datasets pequenos de smoke test
+  - O `test_full_pipeline` não precisa de nenhuma dependência pesada (playwright/torch/ultralytics) — passa em CI limpo
+---
+
 ## 2026-05-24 - US-007
 - Adicionado `--workers N` (default 1) ao comando `dataset build`
 - `workers=1`: loop sequencial com `typer.echo("Rendered X/N images")` por amostra
