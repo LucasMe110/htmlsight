@@ -4,8 +4,9 @@
 
 ### Setup
 
-- Criar ambiente local: `python3 -m venv venv`
-- Instalar dependências mínimas atuais: `venv/bin/python -m pip install pytest typer pillow pyyaml jinja2 faker ruff mypy`
+- Instalar tudo (inclui Playwright + Chromium + torch + ultralytics): `INSTALL_MODEL=1 bash scripts/install-deps.sh`
+- Instalar sem Chromium: `INSTALL_CHROMIUM=0 INSTALL_MODEL=1 bash scripts/install-deps.sh`
+- Instalar sem dependências de modelo: `bash scripts/install-deps.sh`
 
 ### Verificação
 
@@ -15,25 +16,44 @@
 
 ### Execução local
 
-- Ver CLI sem instalar o pacote: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli --help`
-- Gerar dataset sintético leve sem Playwright: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 2 --output /tmp/ia-visao-web-dataset`
-- Gerar dataset em paralelo: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 100 --workers 4 --output /tmp/ia-visao-web-dataset`
-- Validar dataset: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate --root /tmp/ia-visao-web-dataset`
-- Validar dataset pequeno (sem mínimo de instâncias): `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate --root /tmp/ia-visao-web-dataset --min-train-instances 0`
-- Baixar docs Bootstrap 5.3: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset fetch-docs --output data/sources/bootstrap-docs`
-- Predição stub sem pesos treinados: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict <imagem.png>`
-- Avaliar modelo: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli eval --dataset <path> --weights <best.pt> --split test`
+- Ver ajuda da CLI: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli --help`
+- Gerar dataset sintético leve (sem Playwright, para CI): `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 2 --output /tmp/ds`
+- Gerar dataset real com Playwright (produção): `PLAYWRIGHT_BROWSERS_PATH=venv/ms-playwright PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --count 3000 --workers 4 --output data/dataset`
+- Baixar docs Bootstrap 5.3 para usar como fonte real: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset fetch-docs --output data/sources/bootstrap-docs`
+- Validar dataset: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate --root data/dataset --report`
+- Validar dataset pequeno (sem mínimo de instâncias): `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate --root /tmp/ds --min-train-instances 0`
+- Treinar (requer GPU para ser viável; sem GPU, use --epochs 1 para smoke test): `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train --dataset data/dataset --output runs/baseline --epochs 100`
+- Gerar plano de treino sem executar: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train --dataset data/dataset --output runs/baseline --dry-run`
+- Avaliar modelo treinado: `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli eval --dataset data/dataset --weights runs/baseline/weights/best.pt --split test`
+- Predição em imagem (com pesos): `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict imagem.png --weights runs/baseline/weights/best.pt`
+- Predição sem pesos (retorna `detections: []`): `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict imagem.png`
 
-### Fluxo recomendado para testar manualmente
+### Fluxo completo de produção
 
 ```bash
-python3 -m venv venv
-venv/bin/python -m pip install pytest typer pillow pyyaml jinja2 faker ruff mypy
-venv/bin/python -m pytest -v
-venv/bin/python -m ruff check .
-venv/bin/python -m mypy src
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 2 --output /tmp/ia-visao-web-dataset
-PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict /tmp/ia-visao-web-dataset/images/train/synthetic-00000.png
+# 1. Instalar tudo
+INSTALL_MODEL=1 bash scripts/install-deps.sh
+
+# 2. Gerar dataset de 3000 imagens
+PLAYWRIGHT_BROWSERS_PATH=venv/ms-playwright \
+  PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build \
+  --count 3000 --workers 4 --output data/dataset
+
+# 3. Validar
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset validate \
+  --root data/dataset --report
+
+# 4. Treinar (GPU recomendada)
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train \
+  --dataset data/dataset --output runs/baseline --epochs 100
+
+# 5. Avaliar
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli eval \
+  --dataset data/dataset --weights runs/baseline/weights/best.pt --split test
+
+# 6. Predição
+PYTHONPATH=src venv/bin/python -m ia_visao_web.cli predict imagem.png \
+  --weights runs/baseline/weights/best.pt
 ```
 
 ## Estrutura
@@ -106,17 +126,26 @@ associando atributos HTML prováveis a cada detecção.
 
 ## Gotchas
 
-- `uv` não está instalado neste ambiente (`uv --version` falhou).
-- O sandbox padrão de comandos falhou com `bwrap: loopback: Failed RTM_NEWADDR`; comandos estão rodando com permissão escalada quando necessário.
-- O pacote ainda não foi instalado editable; comandos `python -m ia_visao_web.cli` precisam de `PYTHONPATH=src` fora do pytest.
-- `dataset validate` usa por padrão o mínimo de 200 instâncias por classe no `train`; datasets pequenos de smoke test podem falhar nessa validação completa.
-- Playwright, Torch, Ultralytics e pycocotools não foram instalados neste ciclo; as fronteiras opcionais foram testadas por erro acionável, não por execução real desses backends.
-- O critério final de 3000 imagens, treino de 100 épocas e métricas reais depende de Chromium/GPU/dependências pesadas e ainda não foi validado neste ambiente.
+- `uv` não está instalado neste ambiente; usar `venv` diretamente.
+- O pacote não está instalado editable; comandos `python -m ia_visao_web.cli` precisam de `PYTHONPATH=src` fora do pytest.
+- `dataset validate` exige por padrão ≥200 instâncias por classe no `train`; datasets pequenos de smoke test precisam de `--min-train-instances 0`.
+- Playwright precisa da variável `PLAYWRIGHT_BROWSERS_PATH=venv/ms-playwright` para encontrar o Chromium instalado localmente.
+- CUDA não está disponível nesta máquina (`torch.cuda.is_available()` = False); treino de 100 épocas precisa de GPU — sem GPU use `--epochs 1` para smoke test ou rode em ambiente com GPU.
+- Atributos HTML (`tag`, `display`, `role`, `has_children`) ficam `null` no `predict` até que um modelo multi-task seja treinado; o modelo atual detecta classes e bboxes mas não infere atributos.
+- `_build_sample_worker()` deve ser função module-level (não lambda/closure) para funcionar com `ProcessPoolExecutor` (pickle).
+- `monkeypatch.setitem(sys.modules, "ultralytics", None)` é a forma correta de simular ultralytics ausente nos testes (não `setattr`).
+
+## Ambiente atual
+
+- Python: 3.12
+- torch: 2.12.0+cu130 (instalado, sem GPU disponível)
+- ultralytics: 8.4.53 (instalado)
+- playwright: instalado, Chromium em `venv/ms-playwright`
+- Testes: 80 passando, 0 pulados
 
 ## Verificações da Última Execução
 
-- `venv/bin/python -m pytest -v`: 76 testes passaram, 4 pulados (torch ausente).
+- `venv/bin/python -m pytest -v`: 80 passaram.
 - `venv/bin/python -m ruff check .`: passou.
 - `venv/bin/python -m mypy src`: passou (26 arquivos fonte).
-- `PYTHONPATH=src venv/bin/python -m ia_visao_web.cli dataset build --synthetic-only --count 2 --output /tmp/ia-visao-web-dataset-smoke`: passou.
-- Pipeline de integração completo (build → validate → train --dry-run → predict): passou.
+- `dataset build --count 3000 --workers 4`: em execução com Playwright real.
