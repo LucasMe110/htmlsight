@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Any
@@ -30,29 +31,50 @@ app = typer.Typer(help="Detector visual multi-task de componentes web.")
 dataset_app = typer.Typer(help="Gera e valida datasets YOLO com atributos HTML.")
 app.add_typer(dataset_app, name="dataset")
 
+# Process-local renderer: each worker process gets its own instance on first use
+_PROCESS_RENDERER: "PlaywrightRenderer | None" = None
+
+
+def _build_sample_worker(args: tuple[int, Path, bool]) -> str:
+    global _PROCESS_RENDERER
+    index, output, synthetic_only = args
+    sample_id = f"synthetic-{index:05d}"
+    page = BootstrapPageGenerator(seed=index).generate_page(page_id=sample_id)
+    if synthetic_only:
+        image = _synthetic_image(page.viewport)
+        detections = _fixture_detections()
+    else:
+        if _PROCESS_RENDERER is None:
+            _PROCESS_RENDERER = _playwright_renderer()
+        renderer = _PROCESS_RENDERER
+        walker = DomWalker()
+        image, detections = _render_and_label(renderer, walker, page.html, page.viewport)
+    split = split_for_id(sample_id)
+    DatasetWriter(output).write_sample(sample_id, image, detections, split=split)
+    return sample_id
+
 
 @dataset_app.command("build")
 def dataset_build(
     output: Annotated[Path, typer.Option("--output", "-o")] = Path("data/dataset"),
     count: Annotated[int, typer.Option("--count", min=1)] = 3000,
     synthetic_only: Annotated[bool, typer.Option("--synthetic-only")] = False,
+    workers: Annotated[int, typer.Option("--workers", min=1)] = 1,
 ) -> None:
     """Gera o dataset."""
-    writer = DatasetWriter(output)
-    renderer = None if synthetic_only else _playwright_renderer()
-    walker = DomWalker()
-    for index in range(count):
-        sample_id = f"synthetic-{index:05d}"
-        page = BootstrapPageGenerator(seed=index).generate_page(page_id=sample_id)
-        if synthetic_only:
-            image = _synthetic_image(page.viewport)
-            detections = _fixture_detections()
-        else:
-            if renderer is None:  # pragma: no cover - defensive narrowing
-                raise typer.BadParameter("renderer indisponivel")
-            image, detections = _render_and_label(renderer, walker, page.html, page.viewport)
-        split = split_for_id(sample_id)
-        writer.write_sample(sample_id, image, detections, split=split)
+    args_list = [(i, output, synthetic_only) for i in range(count)]
+
+    if workers == 1:
+        for done, args in enumerate(args_list, 1):
+            _build_sample_worker(args)
+            typer.echo(f"Rendered {done}/{count} images")
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futs = [executor.submit(_build_sample_worker, a) for a in args_list]
+            for done, future in enumerate(as_completed(futs), 1):
+                future.result()
+                typer.echo(f"Rendered {done}/{count} images")
+
     typer.echo(f"dataset escrito em {output}")
 
 

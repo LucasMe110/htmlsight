@@ -164,6 +164,102 @@ def test_eval_exits_1_when_ultralytics_unavailable(tmp_path, monkeypatch):
     assert result.exit_code == 1
 
 
+def test_dataset_build_workers_option_in_help():
+    result = CliRunner().invoke(app, ["dataset", "build", "--help"])
+    assert "--workers" in result.stdout
+
+
+def test_dataset_build_workers_1_reports_progress_per_image(tmp_path):
+    result = CliRunner().invoke(
+        app,
+        [
+            "dataset", "build",
+            "--synthetic-only", "--count", "3",
+            "--output", str(tmp_path),
+            "--workers", "1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Rendered 1/3" in result.stdout
+    assert "Rendered 3/3" in result.stdout
+
+
+def _make_sync_executor(max_workers_log: list[int]) -> type:
+    import concurrent.futures
+
+    class SyncExecutor:
+        def __init__(self, max_workers=None):
+            max_workers_log.append(max_workers or 1)
+
+        def submit(self, fn, *args, **kwargs):
+            f: concurrent.futures.Future[object] = concurrent.futures.Future()
+            try:
+                f.set_result(fn(*args, **kwargs))
+            except Exception as exc:  # noqa: BLE001
+                f.set_exception(exc)
+            return f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    return SyncExecutor
+
+
+def test_dataset_build_workers_2_uses_process_pool_executor(tmp_path, monkeypatch):
+    log: list[int] = []
+    monkeypatch.setattr("ia_visao_web.cli.ProcessPoolExecutor", _make_sync_executor(log))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "dataset", "build",
+            "--synthetic-only", "--count", "2",
+            "--output", str(tmp_path),
+            "--workers", "2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert log == [2]
+
+
+def test_dataset_build_workers_2_produces_same_files_as_workers_1(tmp_path, monkeypatch):
+    monkeypatch.setattr("ia_visao_web.cli.ProcessPoolExecutor", _make_sync_executor([]))
+
+    out1 = tmp_path / "out1"
+    out2 = tmp_path / "out2"
+
+    base_args = ["dataset", "build", "--synthetic-only", "--count", "4"]
+    CliRunner().invoke(app, [*base_args, "--output", str(out1), "--workers", "1"])
+    CliRunner().invoke(app, [*base_args, "--output", str(out2), "--workers", "2"])
+
+    files1 = sorted(p.name for p in out1.rglob("*.png"))
+    files2 = sorted(p.name for p in out2.rglob("*.png"))
+    assert files1 == files2
+    assert len(files1) == 4
+
+
+def test_dataset_build_workers_2_reports_progress(tmp_path, monkeypatch):
+    monkeypatch.setattr("ia_visao_web.cli.ProcessPoolExecutor", _make_sync_executor([]))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "dataset", "build",
+            "--synthetic-only", "--count", "3",
+            "--output", str(tmp_path),
+            "--workers", "2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Rendered" in result.stdout
+    assert "3" in result.stdout
+
+
 def test_dataset_fetch_docs_creates_files(tmp_path, monkeypatch):
     from ia_visao_web.sources.fetch_bootstrap_docs import BOOTSTRAP_DOC_PAGES
 
