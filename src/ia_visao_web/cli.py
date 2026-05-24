@@ -12,6 +12,7 @@ from ia_visao_web.dataset.validator import DatasetValidator
 from ia_visao_web.dataset.writer import DatasetWriter
 from ia_visao_web.eval.evaluator import evaluate_model
 from ia_visao_web.eval.predict import UltralyticsUnavailableError, predict_image
+from ia_visao_web.eval.report import generate_report
 from ia_visao_web.labeler.dom_walker import DomWalker
 from ia_visao_web.labeler.geometry import BBox
 from ia_visao_web.labeler.walker import LabeledDetection, filter_matches
@@ -243,6 +244,37 @@ def eval_command(
         typer.echo(f"relatorio escrito em {output}")
     else:
         typer.echo(report_json)
+
+
+@app.command()
+def report(
+    dataset: Annotated[Path, typer.Option("--dataset", "-d")] = Path("data/dataset"),
+    weights: Annotated[Path, typer.Option("--weights", "-w")] = Path(
+        "runs/baseline/weights/best.pt"
+    ),
+    split: Annotated[str, typer.Option("--split")] = "test",
+    output: Annotated[Path, typer.Option("--output", "-o")] = Path("runs/baseline/report"),
+) -> None:
+    """Gera relatório completo pós-treino em Markdown e JSON."""
+    if not weights.exists():
+        typer.echo(f"erro: pesos não encontrados em {weights}. Treine o modelo primeiro.", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Avaliando modelo em split '{split}'...")
+    try:
+        r = generate_report(dataset_path=dataset, weights_path=weights, split=split)
+    except UltralyticsUnavailableError as exc:
+        typer.echo(f"erro: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    r.save(output)
+    typer.echo(f"Relatório salvo em {output}/")
+    typer.echo(f"  {output}/report.md   ← Markdown para post/README")
+    typer.echo(f"  {output}/report.json ← JSON com todas as métricas")
+    typer.echo(
+        f"\nmAP@50: {r.map50:.3f}  |  mAP@50-95: {r.map50_95:.3f}"
+        f"  |  P: {r.precision:.3f}  |  R: {r.recall:.3f}"
+    )
 
 
 @app.command()
