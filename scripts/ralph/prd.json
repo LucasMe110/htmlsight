@@ -81,8 +81,8 @@
         "pytest passes, ruff passes, mypy passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "evaluate_model(dataset_path, weights_path, split) in eval/evaluator.py calls ultralytics model.val() for mAP metrics and predict_image per sidecar for attr accuracy. CLI eval command accepts --dataset, --weights, --split, --output; exits code 1 on missing weights or ultralytics. UltralyticsUnavailableError imported from predict.py to share the same class with cli.py. _compute_attr_accuracy matches predicted vs GT attrs by position up to min(len(gt), len(pred)). ruff B904: raise ... from exc required inside except clause."
     },
     {
       "id": "US-006",

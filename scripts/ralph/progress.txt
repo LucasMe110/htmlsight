@@ -3,6 +3,9 @@ Started: 2026-05-23
 ---
 
 ## Codebase Patterns
+- Ruff B904: dentro de `except` clause, use `raise ... from exc` (não apenas `raise typer.Exit(...)` sem from) para satisfazer B904
+- Import order local (dentro de funções de test): usar ordem alfabética por subpacote: `eval.evaluator` < `eval.predict` (mesma regra I001 do módulo nível de arquivo)
+- `evaluate_model` em evaluator.py importa `UltralyticsUnavailableError` e `predict_image` de predict.py — evita duplicar a classe de erro e o CLI captura a mesma instância
 - Layout `src/` com `PYTHONPATH=src` para executar sem instalar o pacote
 - Dependências pesadas (torch, ultralytics, playwright) DEVEM falhar com erros acionáveis quando ausentes — use `try/except ImportError` e levante erro customizado com mensagem de install
 - Tests que precisam de torch/ultralytics usam `monkeypatch.setattr` para evitar dependência real
@@ -67,6 +70,20 @@ Started: 2026-05-23
   - Para CLI tests com monkeypatch de funções importadas: usar `monkeypatch.setattr("ia_visao_web.cli.predict_image", ...)` (nome no módulo que importa, não no módulo de origem)
   - `zip(..., strict=False)` obrigatório pelo ruff B905 quando os iteráveis têm o mesmo tamanho garantido por design
   - Ruff I001: importações de `ia_visao_web` devem estar em ordem alfabética pelo subpacote (`dataset` < `eval` < `labeler` < `model` < `renderer` < `sources`)
+---
+
+## 2026-05-24 - US-005
+- Implementado `evaluate_model(dataset_path, weights_path, split)` em `src/ia_visao_web/eval/evaluator.py`
+- Chama `ultralytics.YOLO(weights).val(data=data_yaml, split=split)` para mAP@50 e mAP@50-95 por classe
+- `_compute_attr_accuracy` itera sidecars do split, chama `predict_image` por imagem e compara attrs previstos vs ground truth por posição (up to min(len(gt), len(pred)))
+- `UltralyticsUnavailableError` e `predict_image` importados de predict.py para reutilizar a mesma classe no CLI
+- CLI `eval` aceita `--dataset`, `--weights`, `--split`, `--output`; sai com código 1 em pesos ausentes ou ultralytics indisponível
+- Retorna JSON: `{mAP50, mAP50_95, per_class: [...], attr_accuracy: {...}}`
+- **Files changed:** `src/ia_visao_web/eval/evaluator.py` (novo), `src/ia_visao_web/cli.py`, `tests/unit/eval/test_evaluator.py` (novo), `tests/unit/test_cli.py`
+- **Learnings:**
+  - Ruff B904: `raise typer.Exit(code=1)` dentro de `except` precisa de `from exc` para não gerar B904
+  - Import order dentro de funções de test: `eval.evaluator` < `eval.predict` (I001 vale mesmo para imports locais)
+  - `_compute_attr_accuracy` ignora imagens sem arquivo `.png` correspondente e exceções de `predict_image` — defensivo sem esconder erros
 ---
 
 ## 2026-05-24 - US-003
