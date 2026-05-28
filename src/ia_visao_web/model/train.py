@@ -114,5 +114,6 @@ def train_model(config: TrainingConfig) -> None:
         mosaic=config.mosaic,
         fliplr=config.flip_lr,
         patience=config.patience,
-        project=str(config.output),
+        project=str(config.output.parent),
+        name=config.output.name,
     )

@@ -8,7 +8,7 @@ from typing import Any
 
 sync_playwright: Any
 try:
-    from playwright.sync_api import sync_playwright  # type: ignore[no-redef]
+    from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover - tested by monkeypatching the module global
     sync_playwright = None
 

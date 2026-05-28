@@ -5,7 +5,7 @@ from typing import Any
 try:
     import torch as _torch
 except ImportError:  # pragma: no cover - tested by monkeypatching sys.modules
-    _torch = None
+    _torch = None  # type: ignore[assignment]
 
 
 class TorchUnavailableError(RuntimeError):

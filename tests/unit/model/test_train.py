@@ -102,7 +102,8 @@ def test_train_model_calls_ultralytics_yolo_with_correct_args(tmp_path, monkeypa
     assert call_kwargs["mosaic"] == 0.5
     assert call_kwargs["fliplr"] == 0.2
     assert call_kwargs["patience"] == 10
-    assert call_kwargs["project"] == str(tmp_path / "runs")
+    assert call_kwargs["project"] == str(tmp_path)
+    assert call_kwargs["name"] == "runs"
 
 
 def test_train_model_raises_when_ultralytics_missing(tmp_path, monkeypatch):

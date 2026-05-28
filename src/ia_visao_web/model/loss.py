@@ -4,8 +4,8 @@ try:
     import torch
     from torch import nn
 except ImportError:  # pragma: no cover - tested by monkeypatching module global
-    torch = None
-    nn = None
+    torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
 
 
 class TorchUnavailableError(RuntimeError):
