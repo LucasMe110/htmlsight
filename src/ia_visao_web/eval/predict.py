@@ -55,7 +55,7 @@ def predict_image(image_path: Path, weights_path: Path) -> list[dict[str, Any]]:
         cls = boxes.cls.tolist()
         names: dict[int, str] = result.names
 
-        for coords, score, cls_id in zip(xyxy, conf, cls, strict=False):
+        for coords, score, cls_id in zip(xyxy, conf, cls, strict=True):
             x1, y1, x2, y2 = coords
             bbox = BBox(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
             class_name = names.get(int(cls_id), str(int(cls_id)))

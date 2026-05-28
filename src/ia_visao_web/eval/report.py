@@ -127,9 +127,19 @@ def generate_report(
 
     names: dict[int, str] = val_results.names
     maps_per_class: list[float] = list(val_results.box.maps)
+    ap50_per_class: list[float] = (
+        list(val_results.box.ap50)
+        if hasattr(val_results.box, "ap50")
+        else []
+    )
 
     per_class_raw = [
-        {"class": names.get(i, str(i)), "class_id": i, "map50_95": float(m)}
+        {
+            "class": names.get(i, str(i)),
+            "class_id": i,
+            "map50_95": float(m),
+            "map50": float(ap50_per_class[i]) if i < len(ap50_per_class) else 0.0,
+        }
         for i, m in enumerate(maps_per_class)
     ]
     per_class = sorted(per_class_raw, key=lambda x: x["map50_95"], reverse=True)  # type: ignore[arg-type,return-value]

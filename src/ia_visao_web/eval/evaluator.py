@@ -48,8 +48,18 @@ def evaluate_model(
     map50_95: float = float(val_results.box.map)
 
     names: dict[int, str] = val_results.names
+    ap50_per_class: list[float] = (
+        list(val_results.box.ap50)
+        if hasattr(val_results.box, "ap50")
+        else []
+    )
     per_class: list[dict[str, Any]] = [
-        {"class": names.get(class_id, str(class_id)), "class_id": class_id, "map50_95": float(m)}
+        {
+            "class": names.get(class_id, str(class_id)),
+            "class_id": class_id,
+            "map50_95": float(m),
+            "map50": float(ap50_per_class[class_id]) if class_id < len(ap50_per_class) else 0.0,
+        }
         for class_id, m in enumerate(val_results.box.maps)
     ]
 
@@ -79,7 +89,9 @@ def _compute_attr_accuracy(dataset_path: Path, weights_path: Path, split: str) -
 
         try:
             detections = predict_image(image_path, weights_path)
-        except Exception:
+        except (FileNotFoundError, RuntimeError, OSError) as exc:
+            import sys as _sys
+            print(f"Warning: predict falhou para {image_path}: {exc}", file=_sys.stderr)
             continue
 
         pred_attrs = [d["attrs"] for d in detections]

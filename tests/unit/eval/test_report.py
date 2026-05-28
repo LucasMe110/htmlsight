@@ -17,6 +17,8 @@ def _make_val_results(names: dict[int, str]) -> MagicMock:
     val.box.mr = 0.776  # mean recall
     val.box.maps = [0.72, 0.65, 0.58, 0.81, 0.77, 0.90, 0.55, 0.68, 0.83, 0.71,
                     0.79, 0.60, 0.85, 0.73, 0.66, 0.80, 0.74]
+    val.box.ap50 = [0.85, 0.78, 0.70, 0.92, 0.88, 0.96, 0.67, 0.80, 0.94, 0.83,
+                    0.91, 0.73, 0.95, 0.86, 0.79, 0.90, 0.87]
     val.names = names
     return val
 
@@ -100,6 +102,30 @@ def test_generate_report_per_class_sorted_by_map(tmp_path, monkeypatch):
 
     maps = [c["map50_95"] for c in report.per_class]
     assert maps == sorted(maps, reverse=True)
+
+
+def test_generate_report_per_class_includes_map50(tmp_path, monkeypatch):
+    names = {i: c for i, c in enumerate([
+        "button", "input", "textarea", "checkbox", "radio", "select", "link",
+        "card", "navbar", "tabs", "modal", "table", "alert", "accordion",
+        "image", "text", "container",
+    ])}
+    ds = _make_dataset(tmp_path, names)
+    weights = tmp_path / "best.pt"
+    weights.write_text("fake")
+
+    monkeypatch.setitem(sys.modules, "ultralytics", _make_mock_ultralytics(names))
+
+    report = generate_report(dataset_path=ds, weights_path=weights, split="test")
+
+    # Every per-class entry must have map50 populated (not always 0.0)
+    for cls_entry in report.per_class:
+        assert "map50" in cls_entry
+        assert cls_entry["map50"] > 0.0, f"map50 is 0 for {cls_entry['class']}"
+
+    # button is index 0, ap50[0] = 0.85
+    button_entry = next(c for c in report.per_class if c["class"] == "button")
+    assert button_entry["map50"] == pytest.approx(0.85)
 
 
 def test_report_to_markdown_contains_key_sections(tmp_path, monkeypatch):

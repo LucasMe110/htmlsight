@@ -57,6 +57,11 @@ class WebComponentDataset:
                     )
 
         attrs: list[dict[str, Any]] = json.loads(attrs_path.read_text())
+        if len(boxes) != len(attrs):
+            raise ValueError(
+                f"Sample {sample_id}: {len(boxes)} boxes mas {len(attrs)} attrs — "
+                f"dataset corrompido ({label_path} vs {attrs_path})"
+            )
         image = Image.open(image_path)
 
         return {
