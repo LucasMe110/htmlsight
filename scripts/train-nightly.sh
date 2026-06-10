@@ -25,7 +25,7 @@ PYTHONPATH=src venv/bin/python -m ia_visao_web.cli train \
     --dataset data/dataset \
     --output runs/nightly-"$(date +%Y%m%d)" \
     --epochs 100 \
-    --device cpu
+    --device auto
 
 echo ""
 echo "========================================"
